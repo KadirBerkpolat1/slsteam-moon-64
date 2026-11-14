@@ -102,6 +102,68 @@ instruction stream. On x86_64 that decoder rejects every instruction, so
 `setup()` reports the capability unavailable and installs no detour. The
 feature is off, not wrong.
 
+## Distribution floor — read this before shipping a binary
+
+The x86_64 build requires **glibc 2.38** and **GLIBCXX_3.4.32**. Measured, not
+assumed: `readelf -V bin/SLSsteam.so`.
+
+| distribution | glibc | runs? |
+|---|---|---|
+| Ubuntu 24.04 | 2.39 | yes |
+| Ubuntu 22.04 | 2.35 | **no** |
+| Debian 13 | 2.41 | yes |
+| Debian 12 | 2.36 | **no** |
+| Fedora 39+ | 2.38 | yes |
+| Arch / CachyOS | rolling | yes |
+
+### Why the floor is 2.38 and not 2.34
+
+The source is C++20. Under C++20, glibc's own headers redirect
+`strtol`/`strtoul`/`strtoll`/`strtoull` to `__isoc23_strto*`, and those first
+appear in glibc 2.38. Nothing in this fork calls `strtol` — it arrives through
+`<cstdlib>` in ordinary C++ code — so there is no source-level opt-out. The four
+symbols are the whole reason:
+
+```
+UND __isoc23_strtoul@GLIBC_2.38
+UND __isoc23_strtoll@GLIBC_2.38
+UND __isoc23_strtol@GLIBC_2.38
+UND __isoc23_strtoull@GLIBC_2.38
+```
+
+`GLIBCXX_3.4.32` comes from `std::ios_base::Init` (`ios_base_library_init`), i.e.
+gcc 13+ libstdc++.
+
+Building on an older distro does not lower the floor — it just fails to link.
+Building on a newer one raises it. That is why the portable container for this
+arch is Ubuntu 24.04 and the resulting floor is stated above rather than
+pretended away.
+
+### Container build
+
+```sh
+scripts/build.sh --portable --arch x86_64   # builds in Ubuntu 24.04
+scripts/build.sh --portable                  # i386, still Ubuntu 22.04 (2.34 floor)
+```
+
+Two images, because the two arches need genuinely different toolchains:
+`scripts/Dockerfile` (22.04, i386 multilib) and `scripts/Dockerfile.x86_64`
+(24.04, no multilib).
+
+## Runtime dependencies
+
+`SLSsteam.so` links only `libstdc++`, `libm`, `libgcc_s`, `libc`, `ld-linux`.
+Notably it does **not** link `libcurl` or `libdbus`:
+
+- **libcurl** is loaded at runtime with `dlopen("libcurl.so.4")`
+  (`src/curl.cpp:22`). A 64-bit `libcurl.so.4` must exist on the host; Steam does
+  not ship one in `steamrt64/`. Every mainstream distro has it via the base curl
+  package, and the fork degrades to "libcurl unavailable" rather than failing to
+  load if it is missing.
+- **libdbus** is not used at all. AceSLS's binary needs `libdbus-1.so.3`; this
+  fork does not, because the DBus-using feature set was never in it. That
+  removes an install step the release binary required.
+
 ## Pattern table — the remaining work
 
 **This is why the port is not usable yet.**

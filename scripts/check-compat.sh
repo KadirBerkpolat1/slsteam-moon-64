@@ -19,16 +19,19 @@ echo "  SLSsteam Binary Compatibility Check"
 echo "========================================="
 echo ""
 
-# Check if it's 32-bit
+# Which client does this binary belong to? Both are legitimate:
+#   ELF 32-bit -> ubuntu12_32 (the original target)
+#   ELF 64-bit -> steamrt64   (the x86_64 port)
 FILE_OUTPUT=$(file "$BINARY")
 echo "Binary type:"
 echo "  $FILE_OUTPUT"
 echo ""
 
-if ! echo "$FILE_OUTPUT" | grep -q "32-bit"; then
-	echo "⚠️  WARNING: Binary is not 32-bit! Steam requires 32-bit."
-	echo ""
-fi
+case "$FILE_OUTPUT" in
+	*32-bit*) echo "  -> matches the ubuntu12_32 client" ;;
+	*64-bit*) echo "  -> matches the steamrt64 client" ;;
+	*)        echo "  -> not an ELF object this stack can load" ;;
+esac
 
 # Check glibc requirements
 if command -v objdump &> /dev/null; then

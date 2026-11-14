@@ -33,20 +33,47 @@ if [ -z "$runtime" ]; then
 	exit 1
 fi
 
-echo "==> portable build (using $runtime, image slsteam-moon-builder)"
+# The two arches need different toolchains, not just different flags:
+#   i386   Ubuntu 22.04 (glibc 2.35) is enough and keeps the 2.34 floor.
+#   x86_64 the source is C++20 and <cstdlib> redirects strtol to __isoc23_*
+#          (glibc 2.38), and io_base_library_init needs GLIBCXX_3.4.32.
+#          Ubuntu 22.04 cannot link it, so this arch uses 24.04.
+ARCH_TO_BUILD="${ARCH:-i386}"
+case "$ARCH_TO_BUILD" in
+	i386|i486|i586|i686|x86|x86_32)
+		dockerfile="scripts/Dockerfile"
+		image="slsteam-moon-builder"
+		;;
+	x86_64)
+		dockerfile="scripts/Dockerfile.x86_64"
+		image="slsteam-moon-builder-x86_64"
+		;;
+	*)
+		echo "no portable builder for ARCH=$ARCH_TO_BUILD" >&2
+		echo "supported: i386, x86_64" >&2
+		exit 1
+		;;
+esac
+
+echo "==> portable build (using $runtime, image $image, arch $ARCH_TO_BUILD)"
 
 # Build (or reuse) the builder image. Tagging by name only, the layer cache
 # inside the runtime keeps rebuilds cheap.
-"$runtime" build -f scripts/Dockerfile -t slsteam-moon-builder . >&2
+"$runtime" build -f "$dockerfile" -t "$image" . >&2
 
 # Run the build inside the container with the repo bind-mounted, so the
 # resulting bin/ lands on the host without needing a docker cp.
 "$runtime" run --rm \
 	-v "$PWD:/build:Z" \
 	-w /build \
-	slsteam-moon-builder \
-	bash -c 'make clean && make'
+	"$image" \
+	bash -c "make clean && make ARCH=$ARCH_TO_BUILD"
 
 scripts/check-pattern-refresh-abi.sh bin/pattern-refresh
+
+if [ "$ARCH_TO_BUILD" = x86_64 ]; then
+	ceiling="$(readelf -V bin/SLSsteam.so | grep -oE 'GLIBC_2\.[0-9]+' | sort -uV | tail -1)"
+	echo "==> SLSsteam.so glibc floor: $ceiling (host $(getconf GNU_LIBC_VERSION | awk '{print $2}'))"
+fi
 
 echo "==> built: bin/SLSsteam.so, bin/library-inject.so, bin/pattern-refresh"
