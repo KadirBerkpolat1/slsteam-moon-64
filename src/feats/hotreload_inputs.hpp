@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//
+// Bounded, deterministic inputs for live package-state reconciliation.
+#pragma once
+
+#include "hotreload_types.hpp"
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+namespace HotReloadInputs
+{
+
+// Snapshot sanity ceilings. These are independent because a managed library
+// carries far more depots than apps: the app-source cap (config_discovery
+// kMaxManagedSourceApps) bounds base apps, but each app adds its DLC app ids
+// and, typically, several depots (measured ~6x depots-per-app on a dense
+// library). Sharing one 4096 ceiling for both silently rejected medium
+// libraries — the whole snapshot failed closed once depots crossed 4096, which
+// disabled runtime license sync and left managed installs stuck at
+// "Missing decryption key". The ceilings only exist to fail closed on
+// pathological/corrupt input; real scale is governed by kMaxManagedSourceApps.
+inline constexpr std::size_t kMaxSnapshotAppIds = 16384;
+inline constexpr std::size_t kMaxSnapshotDepotIds = 131072;
+
+// Retained name for callers that bound an app-id-scale collection
+// (e.g. the library-removal queue capacity).
+inline constexpr std::size_t kMaxSnapshotIds = kMaxSnapshotAppIds;
+
+struct AppInput
+{
+	std::uint32_t baseAppId = 0;
+	bool cacheValid = false;
+	std::vector<std::uint32_t> plannerAppIds;
+	std::vector<std::uint32_t> depotIds;
+	bool childMetadataPending = false;
+	bool childMetadataMissing = false;
+	std::int64_t cacheMtimeSecs = 0;
+	bool publishReady = true;
+};
+
+struct BuildResult
+{
+	PackageSnapshot snapshot;
+	std::vector<std::uint32_t> cacheMissingBaseIds;
+	std::vector<std::uint32_t> metadataMissingBaseIds;
+	std::unordered_map<std::uint32_t, std::int64_t> cacheMtimeSecs;
+	bool valid = false;
+};
+
+inline BuildResult build(std::uint64_t generation,
+	const std::vector<AppInput>& inputs,
+	std::size_t maxAppIds = kMaxSnapshotAppIds,
+	std::size_t maxDepotIds = kMaxSnapshotDepotIds)
+{
+	BuildResult out;
+	out.snapshot.generation = generation;
+	out.snapshot.metadataComplete = true;
+
+	std::unordered_set<std::uint32_t> appIds;
+	std::unordered_set<std::uint32_t> depotIds;
+	appIds.reserve(std::min(inputs.size(), maxAppIds));
+	depotIds.reserve(std::min(inputs.size(), maxDepotIds));
+
+	for (const AppInput& input : inputs)
+	{
+		if (input.publishReady && input.baseAppId != 0)
+			appIds.insert(input.baseAppId);
+		else if (input.publishReady)
+			out.snapshot.metadataComplete = false;
+
+		if (input.cacheValid)
+		{
+			if (input.publishReady)
+				for (const std::uint32_t appId : input.plannerAppIds)
+					if (appId != 0) appIds.insert(appId);
+		}
+		else
+		{
+			if (input.publishReady)
+				out.snapshot.metadataComplete = false;
+			if (input.baseAppId != 0)
+				out.cacheMissingBaseIds.push_back(input.baseAppId);
+		}
+
+		if (input.publishReady)
+			for (const std::uint32_t depotId : input.depotIds)
+				if (depotId != 0) depotIds.insert(depotId);
+		if (input.publishReady && input.childMetadataPending)
+			out.snapshot.metadataComplete = false;
+		if (input.childMetadataMissing && input.baseAppId != 0)
+			out.metadataMissingBaseIds.push_back(input.baseAppId);
+		if (input.baseAppId != 0)
+			out.cacheMtimeSecs[input.baseAppId] = input.cacheMtimeSecs;
+
+		if (appIds.size() > maxAppIds || depotIds.size() > maxDepotIds)
+		{
+			out.snapshot.appIds.clear();
+			out.snapshot.depotIds.clear();
+			out.snapshot.metadataComplete = false;
+			return out;
+		}
+	}
+
+	out.snapshot.appIds.assign(appIds.begin(), appIds.end());
+	out.snapshot.depotIds.assign(depotIds.begin(), depotIds.end());
+	std::sort(out.snapshot.appIds.begin(), out.snapshot.appIds.end());
+	std::sort(out.snapshot.depotIds.begin(), out.snapshot.depotIds.end());
+	std::sort(out.cacheMissingBaseIds.begin(),
+	          out.cacheMissingBaseIds.end());
+	std::sort(out.metadataMissingBaseIds.begin(),
+	          out.metadataMissingBaseIds.end());
+	out.valid = true;
+	return out;
+}
+
+// Builds one AppInput per managed base by reading and parsing each app's cached
+// appinfo + DLC-metadata sidecar. That per-app work dominates hot-reload cost on
+// large libraries, so results are memoized per base and only recomputed when the
+// app's inputs change (cache/metadata mtime or ready/pending/deferred state).
+// `forceRecompute` bypasses the memo for the given bases; callers that already
+// detected a local content change (e.g. a depot-key edit that does not move a
+// file mtime) pass those ids so the stale memo entry is refreshed.
+BuildResult buildFromCaches(std::uint64_t generation,
+	const std::unordered_set<std::uint32_t>& managedAppIds,
+	const std::unordered_set<std::uint32_t>& metadataPendingBaseIds,
+	const std::unordered_set<std::uint32_t>& metadataDeferredBaseIds,
+	const std::unordered_set<std::uint32_t>& readyBaseIds,
+	const std::unordered_set<std::uint32_t>& forceRecompute = {});
+
+// Test/lifecycle hook: drop all memoized per-base inputs.
+void clearInputMemo() noexcept;
+
+} // namespace HotReloadInputs
