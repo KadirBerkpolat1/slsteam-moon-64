@@ -14,6 +14,20 @@
 
 namespace
 {
+// Read the 4-byte displacement encoded in a `mov`/`lea` instruction.
+// This is an instruction field, not a pointer: its width is fixed at 32 bits
+// by the ISA regardless of the host pointer size.
+inline std::uint32_t readDisp32(lm_address_t at)
+{
+	std::uint32_t value = 0;
+	if (LM_ReadMemory(at, reinterpret_cast<lm_byte_t*>(&value), sizeof(value))
+		!= sizeof(value))
+	{
+		return 0;
+	}
+	return value;
+}
+
 bool executableAddress(lm_address_t address)
 {
 	lm_segment_t segment{};
@@ -33,7 +47,12 @@ CServerPipe* CSteamEngine::getServerPipe(const HSteamPipe pipe)
 
 CUser* CSteamEngine::getUser(uint32_t index)
 {
-	const static auto offset = *reinterpret_cast<lm_address_t*>(Patterns::CSteamEngine::Offset_User.address + 0x2);
+	// The instruction encodes a 4-byte displacement (disp32), not a pointer-
+	// sized value.  Reading through lm_address_t happened to work on i386
+	// because uintptr_t was 4 bytes there; on x86_64 it would read 8 and fold
+	// in the following instruction's bytes.
+	const static auto offset = static_cast<lm_address_t>(readDisp32(
+		Patterns::CSteamEngine::Offset_User.address + 0x2));
 	const auto vec = reinterpret_cast<const CUtlVector<CUser*>*>(this + offset);
 	if (!vec->memory.base || index >= vec->size)
 	{
@@ -49,7 +68,8 @@ IClientUtils* CSteamEngine::getUtils()
 	{
 		return nullptr;
 	}
-	const static lm_address_t offset = *reinterpret_cast<lm_address_t*>(Patterns::CSteamEngine::Offset_ClientUtils.address + 2);
+	const static lm_address_t offset = static_cast<lm_address_t>(readDisp32(
+		Patterns::CSteamEngine::Offset_ClientUtils.address + 2));
 	return reinterpret_cast<IClientUtils*>(this + offset);
 }
 

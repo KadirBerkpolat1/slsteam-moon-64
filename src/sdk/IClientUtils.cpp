@@ -10,7 +10,15 @@
 HSteamPipe IClientUtils::getCurrentSteamPipe()
 {
 	//Offset found in IClientUtils::GetAppId
-	const static auto offset = *reinterpret_cast<lm_address_t*>(Patterns::IClientUtils::Offset_GetPipeIndex.address + 0x2);
+	// 4-byte instruction displacement, not a pointer-sized read (see
+	// CSteamEngine.cpp:readDisp32).
+	std::uint32_t raw = 0;
+	if (LM_ReadMemory(Patterns::IClientUtils::Offset_GetPipeIndex.address + 0x2,
+	                  reinterpret_cast<lm_byte_t*>(&raw), sizeof(raw)) != sizeof(raw))
+	{
+		return 0;
+	}
+	const static auto offset = static_cast<lm_address_t>(raw);
 	return *reinterpret_cast<HSteamPipe*>(this + offset);
 }
 
