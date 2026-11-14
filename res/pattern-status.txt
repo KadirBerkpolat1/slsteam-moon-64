@@ -1,0 +1,11 @@
+# Machine-readable state of the x86_64 pattern table.
+# Read by moon64/install.sh: a build whose required patterns are not all
+# resolved cannot inject (Patterns::init() fails and SLSsteam aborts the whole
+# injection), so staging one would silently leave Steam unpatched.
+#
+# Update these numbers whenever an x86_64 signature lands.
+arch=x86_64
+required=37
+seeded=7
+pending=23
+runipcframe_tail=pending
