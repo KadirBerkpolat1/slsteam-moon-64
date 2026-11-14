@@ -23,6 +23,16 @@
 #include <sys/stat.h>
 
 
+// The IClient*::RunIPCFrame dispatchers all open with the same saved-register
+// chain.  PrologueUpwards searches BACKWARDS from the match, so the vector is
+// stored in reverse memory order: i386 is push ebp / mov ebp,esp / push esi /
+// push edi, read backwards.  x86-64 saves rbp plus the r12-r15 run instead.
+#if defined(__x86_64__)
+static const std::vector<int16_t> kIpcPrologue { 0x55, 0x41, 0x56, 0x41, 0x57, 0x41, 0xE5, 0x89, 0x48, 0x55 };
+#else
+static const std::vector<int16_t> kIpcPrologue { 0x56, 0x57, 0xe5, 0x89, 0x55 };
+#endif
+
 namespace
 {
 	std::optional<PatternCatalog::Catalog> g_steamClientCatalog;
@@ -912,8 +922,17 @@ namespace Patterns
 	Pattern_t TraceIPC
 	{
 		"TraceIPC",
+#if defined(__x86_64__)
+		// x86-64: `mov rdi,rdx; shr eax,3` then the store pair.  PrologueUpwards
+		// because the anchor is mid-function; the saved-register chain gives the
+		// entry.  Verified unique in steamrt64/steamclient.so.
+		"48 89 D7 C1 E8",
+		SigFollowMode::PrologueUpwards,
+		std::vector<int16_t> { 0x55, 0x41, 0x56, 0x41, 0x57, 0x41 },
+#else
 		"E8 ? ? ? ? 83 C4 10 85 FF 74 ? 8B 07 83 EC 04 FF B5 ? ? ? ? FF B5 ? ? ? ? 57 FF 10 83 C4 10 8D 45 ? 83 EC 04 89 F3 6A 04 50 FF 75",
-		SigFollowMode::Relative
+		SigFollowMode::Relative,
+#endif
 	};
 
 	namespace SteamUI
@@ -1053,9 +1072,15 @@ namespace Patterns
 		Pattern_t GetServerPipe
 		{
 			"CSteamEngine::GetServerPipe",
+#if defined(__x86_64__)
+			"0F B7 CE 31 D2",
+			SigFollowMode::PrologueUpwards,
+			std::vector<int16_t> { 0x55, 0x41, 0x56, 0x41, 0x57, 0x41 },
+#else
 			"0F B7 CA 31 C0 3B 4B",
 			SigFollowMode::PrologueUpwards,
 			std::vector<int16_t> { 0x53, 0x56, 0x57 },
+#endif
 			nullptr,
 			"Patterns::CSteamEngine::GetServerPipe"
 		};
@@ -1068,15 +1093,29 @@ namespace Patterns
 		Pattern_t SetAppIdForCurrentPipe
 		{
 			"CSteamEngine::SetAppIdForCurrentPipe",
+#if defined(__x86_64__)
+			"0F 43 C6 83 FB",
+			SigFollowMode::PrologueUpwards,
+			std::vector<int16_t> { 0x55, 0x41, 0x56, 0x41, 0x57, 0x41 },
+			nullptr,
+			"Patterns::CSteamEngine::SetAppIdForCurrentPipe"
+#else
 			"E8 ? ? ? ? E9 ? ? ? ? ? ? ? ? ? 8B 85 ? ? ? ? 83 EC 08 FF B5",
 			SigFollowMode::Relative
+#endif
 		};
 		Pattern_t ProcessIPCFrame
 		{
 			"CSteamEngine::ProcessIPCFrame",
+#if defined(__x86_64__)
+			"48 89 DA 44 89 E6 5B",
+			SigFollowMode::PrologueUpwards,
+			std::vector<int16_t> { 0x55, 0x41, 0x56, 0x41, 0x57, 0x41 },
+#else
 			"5E C3 FF 74 24",
 			SigFollowMode::PrologueUpwards,
 			std::vector<int16_t> { 0xC3, 0x81, -1, -1, -1, -1, 0xE8, 0x53, 0x56 },
+#endif
 			nullptr,
 			"Patterns::CSteamEngine::ProcessIPCFrame"
 		};
@@ -1105,7 +1144,7 @@ namespace Patterns
 			"CSteamMatchmakingServers::GetServerDetails",
 			"89 45 ? 83 C4 10 83 EC 0C 89 F3",
 			SigFollowMode::PrologueUpwards,
-			std::vector<uint8_t> { 0x56, 0x57, 0xe5, 0x89, 0x55 }
+			kIpcPrologue
 		};
 		Pattern_t RequestInternetServerList
 		{
@@ -1136,8 +1175,14 @@ namespace Patterns
 		Pattern_t CheckAppOwnership
 		{
 			"CUser::CheckAppOwnership",
+#if defined(__x86_64__)
+			"48 89 E8 31 ED",
+			SigFollowMode::PrologueUpwards,
+			std::vector<int16_t> { 0x55, 0x41, 0x56, 0x41, 0x57, 0x41 },
+#else
 			"E8 ? ? ? ? 88 45 ? 83 C4 10 84 C0 0F 84 ? ? ? ? 8B 45 ? 80 7D ? 00",
 			SigFollowMode::Relative
+#endif
 		};
 		// Direct cdecl entry.  This was a call-site + Relative follow, but the
 		// caller restructured on a later client (the je flipped to a jne with a
@@ -1173,8 +1218,14 @@ namespace Patterns
 		Pattern_t UpdateAppOwnershipTicket
 		{
 			"IClientUser::UpdateAppOwnershipTicket",
+#if defined(__x86_64__)
+			"41 89 CD 83 FD",
+			SigFollowMode::PrologueUpwards,
+			std::vector<int16_t> { 0x55, 0x41, 0x56, 0x41, 0x57, 0x41 },
+#else
 			"E8 ? ? ? ? E9 ? ? ? ? ? ? ? ? ? ? 8D 45 ? 89 45 ? EB",
 			SigFollowMode::Relative,
+#endif
 			nullptr,
 			"Patterns::CUser::UpdateAppOwnershipTicket"
 		};
@@ -1318,9 +1369,15 @@ namespace Patterns
 		Pattern_t RunIPCFrame
 		{
 			"IClientAppManager::RunIPCFrame",
+#if defined(__x86_64__)
+			// x86-64 tail: call rel32; mov eax,[rbp+disp32]; cmp eax,imm32.
+			// The 32-bit `83 C4 10` (add esp) is absent -- x86-64 callee cleans.
+			"E8 ? ? ? ? 8B 85 ? ? ? ? 3D 83 85 0A 7A",
+#else
 			"E8 ? ? ? ? 8B 85 ? ? ? ? 83 C4 10 3D B7 85 0A 7A",
+#endif
 			SigFollowMode::PrologueUpwards,
-			std::vector<uint8_t> { 0x56, 0x57, 0xe5, 0x89, 0x55 }
+			kIpcPrologue
 		};
 		Pattern_t BCanRemotePlayTogether
 		{
@@ -1336,9 +1393,19 @@ namespace Patterns
 		Pattern_t RunIPCFrame
 		{
 			"IClientApps::RunIPCFrame",
+#if defined(__x86_64__)
+			"E8 ? ? ? ? 8B 85 ? ? ? ? 3D CA 9C 88 A6",
+			SigFollowMode::PrologueUpwards,
+			// This dispatcher spills its first argument between the saved-register
+			// groups (entry: 55 48 89 E5 41 57 41 56 49 89 F6 41 55), so the
+			// generic r12-r15 prologue does not match it.  The vector is the entry
+			// bytes read in the order findPrologue compares them.
+			std::vector<int16_t> { 0x89, 0x49, 0x56, 0x41, 0x57, 0x41, 0xE5, 0x89, 0x48, 0x55 }
+#else
 			"E8 ? ? ? ? 8B 85 ? ? ? ? 83 C4 10 3D 37 9C 88 A6",
 			SigFollowMode::PrologueUpwards,
-			std::vector<uint8_t> { 0x56, 0x57, 0xe5, 0x89, 0x55 }
+			kIpcPrologue
+#endif
 		};
 	}
 
@@ -1352,9 +1419,14 @@ namespace Patterns
 			// stale 0x872FE86C only ever resolved via the pivot fallback.  The
 			// high-24 pivot fingerprint (autoResolveIpcFrameRoots) remains as the
 			// safety net for a future median jump.
+#if defined(__x86_64__)
+			// x86-64 tail: call rel32; mov eax,[rbp+disp32]; cmp eax,imm32.
+			"E8 ? ? ? ? 8B 85 ? ? ? ? 3D 65 DD 12 87",
+#else
 			"E8 ? ? ? ? 8B 85 ? ? ? ? 83 C4 10 3D 65 DD 12 87",
+#endif
 			SigFollowMode::PrologueUpwards,
-			std::vector<uint8_t> { 0x56, 0x57, 0xe5, 0x89, 0x55 }
+			kIpcPrologue
 		};
 	}
 
@@ -1363,9 +1435,15 @@ namespace Patterns
 		Pattern_t RunIPCFrame
 		{
 			"IClientUser::RunIPCFrame",
+#if defined(__x86_64__)
+			// x86-64 tail: call rel32; mov eax,[rbp+disp32]; cmp eax,imm32.
+			// The 32-bit `83 C4 10` (add esp) is absent -- x86-64 callee cleans.
+			"E8 ? ? ? ? 8B 85 ? ? ? ? 3D 10 A3 86 73",
+#else
 			"E8 ? ? ? ? 8B 85 ? ? ? ? 83 C4 10 3D 10 A3 86 73",
+#endif
 			SigFollowMode::PrologueUpwards,
-			std::vector<uint8_t> { 0x56, 0x57, 0xe5, 0x89, 0x55 }
+			kIpcPrologue
 		};
 
 		Pattern_t BLoggedOn
@@ -1379,7 +1457,7 @@ namespace Patterns
 			"IClientUser::BUpdateAppOwnershipTicket",
 			"83 EC 0C 89 F3 8B 7D ? FF 30 E8 ? ? ? ? 83 C4 10 83 FF 01 77 ? 84 C0 75 ? 80 7D ? 00 74 ? 80 7D ? 00 0F 84 ? ? ? ? 8D 65",
 			SigFollowMode::PrologueUpwards,
-			std::vector<uint8_t> { 0x56, 0x57, 0xe5, 0x89, 0x55 }
+			kIpcPrologue
 		};
 		Pattern_t GetAppOwnershipTicketExtendedData
 		{
@@ -1416,9 +1494,15 @@ namespace Patterns
 		Pattern_t RunIPCFrame
 		{
 			"IClientUGC::RunIPCFrame",
+#if defined(__x86_64__)
+			// x86-64 tail: call rel32; mov eax,[rbp+disp32]; cmp eax,imm32.
+			// The 32-bit `83 C4 10` (add esp) is absent -- x86-64 callee cleans.
+			"E8 ? ? ? ? 8B 85 ? ? ? ? 3D 56 0C D2 71",
+#else
 			"E8 ? ? ? ? 8B 85 ? ? ? ? 83 C4 10 3D 62 0C D2 71",
+#endif
 			SigFollowMode::PrologueUpwards,
-			std::vector<uint8_t> { 0x56, 0x57, 0xe5, 0x89, 0x55 }
+			kIpcPrologue
 		};
 	}
 
@@ -1429,7 +1513,7 @@ namespace Patterns
 			"IClientUserStats::RunIPCFrame",
 			"E8 ? ? ? ? 8B 85 ? ? ? ? 83 C4 10 3D 8F 65 6D 87",
 			SigFollowMode::PrologueUpwards,
-			std::vector<uint8_t> { 0x56, 0x57, 0xe5, 0x89, 0x55 }
+			kIpcPrologue
 		};
 	}
 
@@ -1588,7 +1672,7 @@ namespace Patterns
 			"IClientUtils::RunIPCFrame",
 			"83 EC 08 89 F3 50 57 E8 ? ? ? ? 58 FF B5 ? ? ? ? E8 ? ? ? ? 58 8D 45",
 			SigFollowMode::PrologueUpwards,
-			std::vector<uint8_t> { 0x56, 0x57, 0xe5, 0x89, 0x55 }
+			kIpcPrologue
 		};
 		Pattern_t Offset_GetPipeIndex
 		{
@@ -1617,10 +1701,16 @@ namespace Patterns
 		Pattern_t BBuildAndAsyncSendFrame
 		{
 			"CWebSocketConnection::BBuildAndAsyncSendFrame",
+#if defined(__x86_64__)
+			"45 31 F6 83 7F",
+			SigFollowMode::PrologueUpwards,
+			std::vector<int16_t> { 0x55, 0x41, 0x56, 0x41, 0x57, 0x41 },
+#else
 			"55 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 53 81 EC AC 00 00 00 "
 			"8B 45 10 8B 55 08 89 85 ? ? FF FF 89 95 ? ? FF FF "
 			"65 A1 14 00 00 00",
-			SigFollowMode::None
+			SigFollowMode::None,
+#endif
 		};
 	}
 

@@ -56,7 +56,14 @@ namespace IpcFrame
 	};
 
 	// Byte offset of the u32 root immediate within a matched dispatch tail.
+#if defined(__x86_64__)
+	// E8 rel32 (5) + 8B 85 disp32 (6) = 11 bytes, then the 3D opcode at 11,
+	// so the u32 immediate starts at 12.  There is no `add esp,0x10` on x86-64
+	// because the callee restores the stack.
+	inline constexpr size_t kRootByteOffset = 12;
+#else
 	inline constexpr size_t kRootByteOffset = 15;
+#endif
 	// Total bytes inspected per match (15-byte mask + 4-byte root).
 	inline constexpr size_t kMatchSpan = kRootByteOffset + 4;
 
@@ -69,12 +76,22 @@ namespace IpcFrame
 	inline std::vector<Cand> scan(const uint8_t* code, size_t size)
 	{
 		// -1 == wildcard byte.
+#if defined(__x86_64__)
+		// x86-64: the callee restores the stack, so there is no `add esp,0x10`
+		// between the load and the compare.  Measured on steamrt64/steamclient.so.
+		static const int16_t mask[kRootByteOffset] = {
+			0xE8, -1, -1, -1, -1,        // call rel32
+			0x8B, 0x85, -1, -1, -1, -1,  // mov eax,[rbp+disp32]
+			0x3D,                        // cmp eax,imm32 (root follows)
+		};
+#else
 		static const int16_t mask[kRootByteOffset] = {
 			0xE8, -1, -1, -1, -1,        // call rel32
 			0x8B, 0x85, -1, -1, -1, -1,  // mov eax,[ebp+disp32]
 			0x83, 0xC4, 0x10,            // add esp,0x10
 			0x3D,                        // cmp eax,imm32 (root follows)
 		};
+#endif
 
 		std::vector<Cand> out;
 		if (size < kMatchSpan)
@@ -101,10 +118,10 @@ namespace IpcFrame
 			if (ok)
 			{
 				const uint32_t root =
-					  static_cast<uint32_t>(code[i + 15])
-					| static_cast<uint32_t>(code[i + 16]) << 8
-					| static_cast<uint32_t>(code[i + 17]) << 16
-					| static_cast<uint32_t>(code[i + 18]) << 24;
+					  static_cast<uint32_t>(code[i + kRootByteOffset])
+					| static_cast<uint32_t>(code[i + kRootByteOffset + 1]) << 8
+					| static_cast<uint32_t>(code[i + kRootByteOffset + 2]) << 16
+					| static_cast<uint32_t>(code[i + kRootByteOffset + 3]) << 24;
 				out.push_back({ i, root, size - i });
 			}
 			++i;

@@ -3,9 +3,13 @@
 # resolved cannot inject (Patterns::init() fails and SLSsteam aborts the whole
 # injection), so staging one would silently leave Steam unpatched.
 #
+# Measured 2026-11-15 against the live steamrt64/steamclient.so (build
+# a57ea463e99266a96f7fe029a386d3cbbe5c33b6) by loading the built .so under
+# LD_AUDIT in an isolated process and reading its own "Required pattern" log.
+#
 # Update these numbers whenever an x86_64 signature lands.
 arch=x86_64
 required=37
-seeded=7
-pending=23
-runipcframe_tail=pending
+resolved=11
+pending=26
+runipcframe_tail=partial
