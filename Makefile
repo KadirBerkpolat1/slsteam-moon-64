@@ -47,8 +47,8 @@ else ifeq ($(ARCH),aarch64)
 endif
 
 ifeq ($(ARCH),x86_64)
-	STEAMCLIENT ?= $(HOME)/.local/share/Steam/ubuntu12_64/steamclient.so
-	STEAMUI ?= $(HOME)/.local/share/Steam/ubuntu12_64/steamui.so
+	STEAMCLIENT ?= $(HOME)/.local/share/Steam/steamrt64/steamclient.so
+	STEAMUI ?= $(HOME)/.local/share/Steam/steamrt64/steamui.so
 else
 	STEAMCLIENT ?= $(HOME)/.local/share/Steam/ubuntu12_32/steamclient.so
 	STEAMUI ?= $(HOME)/.local/share/Steam/ubuntu12_32/steamui.so
