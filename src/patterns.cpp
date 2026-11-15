@@ -1990,7 +1990,19 @@ namespace Patterns
 		Pattern_t PrepareDepotDownload
 		{
 			"CDepotDownloadMgr::PrepareDepotDownload",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x105a1e0).
+			// Proof 1: Directly calls CDepotDownloadMgr::ProcessDepotManifest (0x1059d00
+			// at 0x105a20b), then looks up manifestId (r8) in [rbx+0x60]/[rbx+0x78]
+			// RB-tree and polls state [rbp+0x14] == 0x16 -> 1, matching i386 0x117b550.
+			// Proof 2: Exact 2 external callers (0x108b0b0 and 0x108b440, called by
+			// CDepotDownloadMgr::BuildDepotDependency 0x11d6040), matching i386
+			// 0x117b550's 2 external callers (0x11bd3b0, 0x11bd720).
+			// Unique at 25/55 tokens.
+			"41 57 41 56 41 55 41 54 55 53 48 89 FB 48 83 EC 78 48 89 74 24 08 89 4C 24 04 64 4C 8B 24 25 28 00 00 00 4C 89 64 24 68 4D 89 C4 E8 ? ? ? ? 48 63 43 60 83 F8 FF",
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 83 EC 60 8B 7D 08 8B 45 18 8B 55 1C FF 75 20 89 45 98 52 50 FF 75 14 89 55 9C FF 75 10 FF 75 0C 57 E8 ? ? ? ? 8B 47 4C 83 C4 20 83 F8 FF",
+#endif
 			SigFollowMode::None
 		};
 

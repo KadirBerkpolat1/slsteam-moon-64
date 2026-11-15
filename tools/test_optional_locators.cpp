@@ -292,6 +292,12 @@ void checkI386(
 		"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 4C 8B 55 1C 89 45 C0 "
 		"8B 45 18 89 55 CC 89 45 C8",
 		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::PrepareDepotDownload",
+		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 83 EC 60 8B 7D 08 8B 45 18 "
+		"8B 55 1C FF 75 20 89 45 98 52 50 FF 75 14 89 55 9C FF 75 10 FF 75 0C "
+		"57 E8 ? ? ? ? 8B 47 4C 83 C4 20 83 F8 FF",
+		source);
 }
 
 void checkX86_64(
@@ -377,6 +383,10 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "CDepotDownloadMgr::ProcessDepotManifest",
 		"41 57 41 56 41 89 CE 41 55 41 54 49 89 FC 55 53 4C 89 C3 48 83 EC 38 48 89 34 24 89 54 24 0C 4C 89 4C 24 10 64 48 8B 04 25 28 00 00 00 48 89 44 24 28 48 63 47 60 83 F8 FF",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::PrepareDepotDownload",
+		"41 57 41 56 41 55 41 54 55 53 48 89 FB 48 83 EC 78 48 89 74 24 08 89 4C 24 04 64 4C 8B 24 25 28 00 00 00 4C 89 64 24 68 4D 89 C4 E8 ? ? ? ? 48 63 43 60 83 F8 FF",
 		source);
 }
 } // namespace
