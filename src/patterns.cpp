@@ -1572,7 +1572,21 @@ namespace Patterns
 		Pattern_t GetOrAddAppData
 		{
 			"CAppInfoCache::GetOrAddAppData",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Direct RB-tree lookup + CAppData construction (0x1026280,
+			// matching i386 0x115f3a0) on CAppInfoCache+0x50, asserting
+			// "nAppID != k_uAppIdInvalid" / "../clientdll/appdatacache.cpp" (0xb47)
+			// when appID == 0 (`test ebp,ebp; je 0x102e538`).
+			// Proof 2: Called twice inside CUser::ProcessPendingLicenseUpdates
+			// (0x1851250 at 0x185132c and 0x18513a9/0x1851547 for appID 7) right
+			// after BlockOnInitialization (0x10282e0), returning CAppData* whose
+			// SHA ([rax+0x20..+0x34]) and skip flag ([rax+0x14]) are tested.
+			// Unique at 20/90 tokens.
+			"41 57 41 56 41 55 41 54 49 89 FC 55 89 F5 53 48 83 EC 18 48 8B 05 ? ? ? ? 64 48 8B 1C 25 28 00 00 00 48 89 5C 24 08 89 D3 8B 10 31 C0 85 D2 74 14 48 8D 3D ? ? ? ? 48 89 E2 BE 04 00 00 00 E8 ? ? ? ? 85 ED 48 89 04 24 0F 84 ? ? ? ? 49 63 44 24 68 83 F8 FF",
+#else
 			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 2C 8B 75 0C 8B 7D 10 89 45 D0 8B 80 ? ? 00 00 8B 00 85 C0 0F 85 ? ? ? ?",
+#endif
 			SigFollowMode::None
 		};
 		// CAppInfoCache::ThreadedReadFromDisk is Steam's own background cache

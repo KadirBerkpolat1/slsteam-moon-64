@@ -271,6 +271,11 @@ void checkI386(
 		"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 81 EC 3C 04 00 00 8B 5D 08 "
 		"8B 75 14 89 85 ? ? FF FF 8B 45 0C",
 		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::GetOrAddAppData",
+		"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 2C 8B 75 0C 8B 7D 10 "
+		"89 45 D0 8B 80 ? ? 00 00 8B 00 85 C0 0F 85 ? ? ? ?",
+		source);
 }
 
 void checkX86_64(
@@ -340,6 +345,10 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "CDepotDownloadMgr::BuildDepotDependency",
 		"41 57 41 56 41 55 41 54 41 89 F4 55 48 89 FD 53 48 81 EC ? ? 00 00 64 4C 8B 2C 25 28 00 00 00 4C 89 AC 24 ? ? 00 00 49 89 CD C6 47 1C 01 44 8B 72 10",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::GetOrAddAppData",
+		"41 57 41 56 41 55 41 54 49 89 FC 55 89 F5 53 48 83 EC 18 48 8B 05 ? ? ? ? 64 48 8B 1C 25 28 00 00 00 48 89 5C 24 08 89 D3 8B 10 31 C0 85 D2 74 14 48 8D 3D ? ? ? ? 48 89 E2 BE 04 00 00 00 E8 ? ? ? ? 85 ED 48 89 04 24 0F 84 ? ? ? ? 49 63 44 24 68 83 F8 FF",
 		source);
 }
 } // namespace
