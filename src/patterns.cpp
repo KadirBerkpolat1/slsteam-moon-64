@@ -1160,8 +1160,21 @@ namespace Patterns
 		Pattern_t Offset_User
 		{
 			"CSteamEngine::m_pUser",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: CSteamEngine::CSteamEngine (0x17c0000) initializes m_ClientUtils
+			// at +0x1118 and this CUtlVector<UserEntry> at +0x11c0 (m_Size at +0x11d0).
+			// Proof 2: CSteamEngine::BMainLoop (0x17c4930, "CSteamEngine::BMainLoop")
+			// and sibling vtable slots [18], [21], [31], [33] scale index<<4 (16-byte
+			// pairs) and add [this+0x11c0] before dereferencing [rax+8] as CUser*.
+			// Anchored on `48 03 83 C0 11 00 00` (disp32 at +3 = kDispAfterRexOpcodeModrm);
+			// unique at 17 tokens (full 27-token tail pins the [rax+0x138] virtual call).
+			"48 03 83 ? ? 00 00 48 8B 78 08 48 8B 07 FF 90 38 01 00 00 83 C5 01 41 83 C4 01",
+			SigFollowMode::None,
+#else
 			"8B 80 ? ? ? ? FF 75 ? 8D 34",
 			SigFollowMode::None,
+#endif
 			nullptr,
 			"Patterns::CSteamEngine::Offset_User"
 		};
@@ -1227,23 +1240,62 @@ namespace Patterns
 		Pattern_t GetSubscribedApps
 		{
 			"CUser::GetSubscribedApps",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: CUser(259) RTTI vtable slot 182 (0x1844c00) rebases `this`
+			// by -0x1f88 and tail-jumps to 0x1844840, matching i386 slot 182 -> 0x1a1f630.
+			// Proof 2: Same (this, pAppList, size, flags) entry shape: two 16-byte
+			// movdqa stack vector inits and signed count check on [rdi+0x24c0].
+			// Unique at 15 tokens; 44-token prologue masks only the .rodata RIP disp.
+			"41 57 41 56 41 55 41 54 55 53 48 83 EC 78 66 0F 6F 05 ? ? ? ? "
+			"48 89 74 24 10 89 54 24 0C 88 4C 24 0B 64 48 8B 04 25 28 00 00 00",
+			SigFollowMode::None
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 83 C4 80 0F B6 45 14 6A 00 6A 00 88 45 8F 8D 45 D0 66 0F 6F 86 ? ? ? ? 50 89 45 80 0F 11 45 BC 66 0F 6F 86 ? ? ? ? 89 75 94 0F 29 45 A8",
 			SigFollowMode::None
+#endif
 		};
 		Pattern_t PostCallback
 		{
 			"CSteamEngine::PostCallback",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: All six `mov esi, 0x1f6` (AppOwnershipTicketReceived_t) sites
+			// call 0x1071880 with (this, 0x1f6, &cb, 0x1c, 0), forwarding to
+			// CSteamEngine::PostCallback (0x17b4e40) and tail-jumping to 0x1071720.
+			// Proof 2: 0x1071720 checks [rax+0x14] > 0 and asserts "erverPipes.Element(i) > 0"
+			// in ../clientdll/baseuser.cpp (line 0xb6), matching i386 0x11aa6b0->0x11aa710.
+			// Sibling 0x1071a00 shares the first 74 bytes; the trailing `E9 52 FE FF FF`
+			// jump to 0x1071720 makes it unique at 75/78 tokens.
+			"41 55 45 31 C9 41 89 CD 41 54 49 89 D4 55 89 F5 53 48 89 FB 48 83 EC 10 "
+			"48 8D 05 ? ? ? ? 8B 77 48 48 8B 38 41 50 41 89 C8 48 89 D1 89 EA E8 ? ? ? ? "
+			"48 83 C4 18 44 89 E9 4C 89 E2 89 EE 48 89 DF 5B 5D 41 5C 41 5D E9 52 FE FF FF",
+			SigFollowMode::None,
+#else
 			"E8 ? ? ? ? 8D 86 ? ? ? ? 83 C4 18 68 F6 01 00 00",
 			SigFollowMode::Relative,
+#endif
 			nullptr,
 			"Patterns::CUser::PostCallback"
 		};
 		Pattern_t PostCallbackToAppId
 		{
 			"CUser::PostCallbackToAppId",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Direct entry 0x1071c60 checks `cmp esi, 7` and asserts
+			// "Don't post callbacks to WinUI" in ../clientdll/baseuser.cpp (line 0x15e),
+			// identical to i386 0x11aac40.
+			// Proof 2: Walks the same 0x18-stride RB-tree at [rbp+0xcc8..0xcf8] and calls
+			// CSteamEngine::PostCallbackToPipe (0x17ac590).  Unique at 19/47 tokens.
+			"41 57 41 56 41 55 41 54 55 48 89 FD 53 48 83 EC 28 83 FE 07 89 74 24 0C "
+			"89 54 24 18 48 89 4C 24 10 44 89 44 24 1C 0F 84 ? ? ? ? 4C 8D 3D",
+			SigFollowMode::None
+#else
 			"84 C0 0F 45 F8 89 F8",
 			SigFollowMode::PrologueUpwards,
 			std::vector<uint8_t> { 0xE8, 0x53, 0x56, 0x57, 0x55 }
+#endif
 		};
 		Pattern_t UpdateAppOwnershipTicket
 		{
@@ -1501,9 +1553,21 @@ namespace Patterns
 		Pattern_t BUpdateAppOwnershipTicket
 		{
 			"IClientUser::BUpdateAppOwnershipTicket",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: CUser(259) RTTI vtable slot 69 (0x185f860) rebases `this` by
+			// -0x1f88 and tail-jumps to 0x185f560 (matching i386 slot 69 at 0x1a628e0).
+			// Proof 2: Called directly by CSteamEngine::SetAppIdForCurrentPipe (0x17cc6f9)
+			// and preserves the `test dl, dl; cmp dword [rbx+0x1b0], 4` guard.
+			// Unique at 21/49 tokens.
+			"41 57 41 56 41 55 41 54 55 53 48 89 FB 48 81 EC B8 00 00 00 84 D2 "
+			"64 48 8B 2C 25 28 00 00 00 48 89 AC 24 A8 00 00 00 89 F5 0F 85 ? ? ? ? 83 BB",
+			SigFollowMode::None
+#else
 			"83 EC 0C 89 F3 8B 7D ? FF 30 E8 ? ? ? ? 83 C4 10 83 FF 01 77 ? 84 C0 75 ? 80 7D ? 00 74 ? 80 7D ? 00 0F 84 ? ? ? ? 8D 65",
 			SigFollowMode::PrologueUpwards,
 			kIpcPrologue
+#endif
 		};
 		Pattern_t GetAppOwnershipTicketExtendedData
 		{
@@ -1528,8 +1592,20 @@ namespace Patterns
 		Pattern_t IsUserSubscribedAppInTicket
 		{
 			"IClientUser::IsUserSubscribedAppInTicket",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Called by CUser(259) RTTI vtable slot 118 (0x1832de0) after
+			// `lea rdi, [rbx - 0x1f88]`, matching i386 slot 118 (0x1a5fdd0 -> 0x11ad7a0).
+			// Proof 2: Contains assert "steamID == GSteamEngine().GetTicketSteamID(...)"
+			// in ../clientdll/baseuser.cpp and scans the 0xb8-stride ticket vector.
+			// Unique at 16/48 tokens.
+			"41 57 41 56 41 55 41 54 55 53 48 83 EC 18 89 4C 24 0C 8B 8F ? ? 00 00 "
+			"85 C9 0F 8E ? ? ? ? 49 89 F6 48 89 FD 49 89 D5 31 DB BE 02 00 00 00",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 89 C3 83 C4 20 8B ? ? ? ? ? 8B",
 			SigFollowMode::Relative
+#endif
 		};
 		// The tail thunk adjusts the interface `this` to the implementation
 		// pointer with `sub eax,<off>` (`2D ?? ?? 00 00`).  That offset is a

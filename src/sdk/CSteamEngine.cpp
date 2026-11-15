@@ -79,7 +79,13 @@ CUser* CSteamEngine::getUser(uint32_t index)
 	// i386 because uintptr_t was 4 bytes there; on x86_64 it would read 8 and
 	// fold in the following instruction's bytes.
 	const static auto offset = readDisp32(
-		Patterns::CSteamEngine::Offset_User.address + kDispAfterOpcodeModrm);
+		Patterns::CSteamEngine::Offset_User.address
+#if defined(__x86_64__)
+		+ kDispAfterRexOpcodeModrm
+#else
+		+ kDispAfterOpcodeModrm
+#endif
+	);
 	const auto vec = atOffset<const CUtlVector<CUser*>>(this, offset);
 	if (!vec->memory.base || index >= vec->size)
 	{
