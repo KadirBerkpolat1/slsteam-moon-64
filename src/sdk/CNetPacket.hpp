@@ -48,22 +48,31 @@ public:
 	// `size` field, not a real packet.
 	constexpr static uint32_t MAX_PLAUSIBLE_SIZE = 100u * 1024 * 1024;
 
-	// Base field offsets on the classic (stable) layout.
+#if defined(__x86_64__)
+	// Verified against steamrt64/steamclient.so (build a57ea463):
+	// CNetPacket::Init (0x2606b00) and CNetMsg extractor (0x25d67d0) store
+	// m_pubData at +0x10 (8B), m_cubData at +0x18 (4B), m_cRef at +0x1c (4B),
+	// and m_pubOriginalData at +0x20 (8B).
+	constexpr static std::size_t OFF_BODY = 0x10;
+	constexpr static std::size_t OFF_SIZE = 0x18;
+	constexpr static std::size_t OFF_ORIGBODY = 0x20;
+	constexpr static std::size_t RAW_SIZE = 0x28;
+#else
+	// Base field offsets on the classic (stable) 32-bit layout.
 	constexpr static std::size_t OFF_BODY = 0x4;
 	constexpr static std::size_t OFF_SIZE = 0x8;
 	constexpr static std::size_t OFF_ORIGBODY = 0x10;
+	constexpr static std::size_t RAW_SIZE = 0x20;
+#endif
 
-	// Detected field shift (0 = classic/stable layout).  int, single writer
+	// Detected field shift (0 = base layout).  int, single writer
 	// (detectLayout runs on the CM receive thread); benign as a plain global.
 	static inline int s_fieldShift = 0;
 
 private:
 
-	// Raw storage.  Fields live at their base offset + s_fieldShift.  0x20 bytes
-	// holds every field of both layouts (the highest is originalBody at
-	// 0x10 + 8 = 0x18, four bytes, ending at 0x1C); a Steam beta packet is
-	// larger still, and this only ever overlays it.
-	uint8_t raw_[0x20];
+	// Raw storage.  Fields live at their base offset + s_fieldShift.
+	uint8_t raw_[RAW_SIZE];
 
 	template <typename T>
 	T fieldGet(std::size_t off) const
@@ -81,7 +90,11 @@ private:
 	static bool plausibleBody(CNetPacketBody* body)
 	{
 		const auto address = reinterpret_cast<std::uintptr_t>(body);
+#if defined(__x86_64__)
+		return address >= 0x10000u && address < 0x0000800000000000ULL;
+#else
 		return address >= 0x10000u && address < 0xFFFFF000u;
+#endif
 	}
 
 public:
@@ -90,8 +103,8 @@ public:
 	void setBody(CNetPacketBody* value) { fieldSet<CNetPacketBody*>(OFF_BODY, value); }
 	uint32_t sizeBytes() const { return fieldGet<uint32_t>(OFF_SIZE); }
 	void setSize(uint32_t value) { fieldSet<uint32_t>(OFF_SIZE, value); }
+	CNetPacketBody* originalBody() const { return fieldGet<CNetPacketBody*>(OFF_ORIGBODY); }
 	void setOriginalBody(CNetPacketBody* value) { fieldSet<CNetPacketBody*>(OFF_ORIGBODY, value); }
-
 	// Detect the field shift once from a live Steam-owned packet.  Tries the
 	// classic layout first so the stable client is unaffected, then the +8
 	// layout; a candidate is accepted only when `body` is a plausible pointer,
@@ -104,7 +117,11 @@ public:
 		if (settled.load(std::memory_order_acquire) || packet == nullptr)
 			return;
 		const auto* base = reinterpret_cast<const uint8_t*>(packet);
+#if defined(__x86_64__)
+		for (const int shift : {0})
+#else
 		for (const int shift : {0, 8})
+#endif
 		{
 			CNetPacketBody* body;
 			std::memcpy(&body, base + OFF_BODY + shift, sizeof(body));
@@ -260,6 +277,10 @@ public:
 	}
 
 	void free();
-}; //0x20
+}; //0x20 (32-bit) / 0x28 overlay (64-bit)
 
+#if defined(__x86_64__)
+static_assert(sizeof(CNetPacket) == 0x28);
+#else
 static_assert(sizeof(CNetPacket) == 0x20);
+#endif
