@@ -12,6 +12,7 @@ workflow.
 scripts/build-portable-container.sh                      # x86_64, AlmaLinux 8.10
 scripts/build-portable-container.sh --arch i386          # i386, Ubuntu 22.04
 scripts/build-portable-container.sh --with-helper        # + bin/pattern-refresh (Ubuntu 22.04)
+scripts/build-portable-container.sh --netsock64 FILE     # + netsock64.so from moon64's steamclient_audit64.c
 scripts/build.sh --portable --arch x86_64                # same as --with-helper, then copies into bin/
 ```
 
@@ -34,6 +35,7 @@ changes are not included, and the working tree's `obj/`, `bin/` and
 | file | content |
 |---|---|
 | `SLSsteam.so`, `library-inject.so` | the LD_AUDIT objects |
+| `netsock64.so` | only with `--netsock64 FILE`: moon64's P2P cert patch, also an LD_AUDIT object |
 | `pattern-refresh` | only with `--with-helper` |
 | `SHA256SUMS` | `sha256sum -c` compatible |
 | `abi-floor.txt` | `scripts/abi-floor.sh` report: per-version symbol counts and the symbols forcing each floor |
@@ -43,14 +45,21 @@ changes are not included, and the working tree's `obj/`, `bin/` and
 (the maximum over the LD_AUDIT objects), `audit_interface` (the highest LD_AUDIT
 version `la_version` accepts; older loaders get their own version back),
 `source_commit`, `built_at`, `image`, `image_digest`,
-`helper_image`/`helper_image_digest` (with `--with-helper`), `runtime`, and
-`files` with per-file floors and sha256.
+`helper_image`/`helper_image_digest` (with `--with-helper`),
+`netsock64_source_sha256` (with `--netsock64`), `runtime`, and `files` with
+per-file floors and sha256.
 
 The script refuses to write the output when the measured `GLIBC`/`GLIBCXX`
 floor exceeds the advertised one for the default image (`ADVERTISED_GLIBC` /
 `ADVERTISED_GLIBCXX` in the script, or `--max-glibc` / `--max-glibcxx`). For
 x86_64 it also loads each object as an LD_AUDIT module under the image's own
 `ld.so` before the result leaves the container.
+
+`--netsock64 FILE` (x86_64 only) compiles `FILE` in the same image with the
+moon64 installer's own command, `gcc -O2 -Wall -Wextra -shared -fPIC -o
+netsock64.so steamclient_audit64.c -ldl`. It is a second LD_AUDIT object in the
+Steam process, so it is load-checked the same way and counted in the top-level
+floors.
 
 ## Release payload (`install.sh --prebuilt`)
 

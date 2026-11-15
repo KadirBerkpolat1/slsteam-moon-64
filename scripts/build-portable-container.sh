@@ -18,18 +18,25 @@
 #   --max-glibcxx VER   refuse if an LD_AUDIT object needs a newer GLIBCXX_ than VER
 #                       (both default to the measured floor of the default image)
 #   --with-helper       also build bin/pattern-refresh, in HELPER_IMAGE
+#   --netsock64 FILE    also build FILE (moon64's patches/netsock64/
+#                       steamclient_audit64.c) into netsock64.so, x86_64 only,
+#                       in IMAGE with the moon64 installer's gcc command
 #
 # bin/pattern-refresh is a host-side helper, not an LD_AUDIT object, and links
 # the image's libcurl (>= 7.66 for curl_multi_poll) and OpenSSL 3, which the
 # AlmaLinux 8 image does not have. --with-helper builds it in a second pass in
 # HELPER_IMAGE and gates it with scripts/check-pattern-refresh-abi.sh.
 #
+# netsock64.so is LD_AUDIT-loaded into Steam like SLSsteam.so, so it is built
+# in the same image, load-checked under that image's ld.so, and counted in the
+# measured floors.
+#
 # Builds a clean snapshot of HEAD (uncommitted changes are NOT included) with
 # scripts/build.sh --host inside the container. Never falls back to a host
 # build: with no usable runtime it exits non-zero.
 #
-# Outputs in DIR: SLSsteam.so, library-inject.so, [pattern-refresh],
-#                 SHA256SUMS, manifest.json, abi-floor.txt
+# Outputs in DIR: SLSsteam.so, library-inject.so, [netsock64.so],
+#                 [pattern-refresh], SHA256SUMS, manifest.json, abi-floor.txt
 #
 # Usage:
 #   scripts/build-portable-container.sh
@@ -59,6 +66,7 @@ OUT=""
 MAX_GLIBC=""
 MAX_GLIBCXX=""
 WITH_HELPER=0
+NETSOCK_SRC=""
 AUDIT_OBJECTS=(SLSsteam.so library-inject.so)
 
 die() { echo "build-portable-container: $*" >&2; exit 1; }
@@ -72,7 +80,8 @@ while [ $# -gt 0 ]; do
 		--max-glibc)   MAX_GLIBC="${2:?}"; shift 2 ;;
 		--max-glibcxx) MAX_GLIBCXX="${2:?}"; shift 2 ;;
 		--with-helper) WITH_HELPER=1; shift ;;
-		-h|--help)     sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		--netsock64)   NETSOCK_SRC="${2:?}"; shift 2 ;;
+		-h|--help)     sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		*)             die "unknown option: $1 (try --help)" ;;
 	esac
 done
@@ -88,6 +97,10 @@ if [ -z "$IMAGE" ]; then
 	MAX_GLIBCXX="${MAX_GLIBCXX:-${ADVERTISED_GLIBCXX[$ARCH]}}"
 fi
 OUT="${OUT:-$REPO_ROOT/dist/portable/$ARCH}"
+if [ -n "$NETSOCK_SRC" ]; then
+	[ "$ARCH" = x86_64 ] || die "--netsock64 is x86_64 only"
+	[ -f "$NETSOCK_SRC" ] || die "--netsock64 $NETSOCK_SRC: no such file"
+fi
 
 for tool in git tar readelf objdump sha256sum; do
 	command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
@@ -134,15 +147,19 @@ trap cleanup EXIT
 JOBS="$(nproc 2>/dev/null || echo 2)"
 LAST_DIGEST=""
 
-# container_run IMAGE PROVISION_ARCH SNAPSHOT_DIR -- _portable-build.sh args...
-# Builds a fresh snapshot of COMMIT in SNAPSHOT_DIR and runs the build step in
-# IMAGE provisioned for PROVISION_ARCH. Sets LAST_DIGEST to the image digest.
+# snapshot DIR: a clean tree of COMMIT plus the in-container build step.
+snapshot() {
+	mkdir -p "$1"
+	git -C "$REPO_ROOT" archive --format=tar "$COMMIT" | tar -x -C "$1"
+	cp "$SCRIPT_DIR/_portable-build.sh" "$1/.portable-build.sh"
+}
+
+# container_run IMAGE PROVISION_ARCH DIR -- CMD...
+# Runs CMD in DIR, mounted at /build, inside IMAGE provisioned for
+# PROVISION_ARCH. Sets LAST_DIGEST to the image digest.
 container_run() {
 	local image="$1" prov_arch="$2" src="$3"
 	shift 4
-	mkdir -p "$src"
-	git -C "$REPO_ROOT" archive --format=tar "$COMMIT" | tar -x -C "$src"
-	cp "$SCRIPT_DIR/_portable-build.sh" "$src/.portable-build.sh"
 
 	case "$RUNTIME" in
 		podman|docker)
@@ -164,7 +181,7 @@ container_run() {
 			# Rootful docker would leave root-owned files in $WORK; rootless
 			# podman already maps container root to the invoking user.
 			[ "$RUNTIME" = docker ] && run_opts+=(--user "$(id -u):$(id -g)" -e HOME=/tmp)
-			"$RUNTIME" run "${run_opts[@]}" "$tag" bash .portable-build.sh "$@"
+			"$RUNTIME" run "${run_opts[@]}" "$tag" "$@"
 			;;
 		bwrap)
 			local cache="${XDG_CACHE_HOME:-$HOME/.cache}/slsteam-moon/portable" key root
@@ -184,7 +201,7 @@ container_run() {
 				touch "$root/ready"
 			fi
 			LAST_DIGEST="$(cat "$root/digest")"
-			bw "$root/rootfs" --bind "$src" /build --chdir /build bash .portable-build.sh "$@"
+			bw "$root/rootfs" --bind "$src" /build --chdir /build "$@"
 			;;
 	esac
 }
@@ -207,7 +224,8 @@ stage="$WORK/out"
 mkdir -p "$stage"
 
 echo "==> portable build: arch=$ARCH image=$IMAGE runtime=$RUNTIME commit=$COMMIT"
-container_run "$IMAGE" "$ARCH" "$WORK/src" -- "$ARCH" "${AUDIT_OBJECTS[@]/#/bin/}"
+snapshot "$WORK/src"
+container_run "$IMAGE" "$ARCH" "$WORK/src" -- bash .portable-build.sh "$ARCH" "${AUDIT_OBJECTS[@]/#/bin/}"
 IMAGE_DIGEST="$LAST_DIGEST"
 for f in "${AUDIT_OBJECTS[@]}"; do
 	[ -s "$WORK/src/bin/$f" ] || die "container build did not produce bin/$f"
@@ -216,10 +234,36 @@ done
 LAV="$(tr -d '[:space:]' < "$WORK/src/bin/.lav-current")"
 ARTIFACTS=("${AUDIT_OBJECTS[@]}")
 
+if [ -n "$NETSOCK_SRC" ]; then
+	echo "==> netsock64.so from $NETSOCK_SRC in $IMAGE"
+	mkdir -p "$WORK/netsock64"
+	cp "$NETSOCK_SRC" "$WORK/netsock64/steamclient_audit64.c"
+	cat > "$WORK/netsock64/build.sh" <<-'EOF'
+	set -euo pipefail
+	source /etc/portable-env
+	gcc --version | sed -n 1p
+	gcc -O2 -Wall -Wextra -shared -fPIC -o netsock64.so steamclient_audit64.c -ldl
+	out="$(LD_AUDIT="$PWD/netsock64.so" /bin/true 2>&1)" || { echo "$out" >&2; exit 1; }
+	if [ -n "$out" ]; then
+		echo "this image's ld.so rejected netsock64.so: $out" >&2
+		exit 1
+	fi
+	echo "==> netsock64.so loads as an LD_AUDIT module under this image's ld.so"
+	EOF
+	container_run "$IMAGE" "$ARCH" "$WORK/netsock64" -- bash build.sh
+	[ "$LAST_DIGEST" = "$IMAGE_DIGEST" ] ||
+		die "$IMAGE changed digest between the two builds ($IMAGE_DIGEST, $LAST_DIGEST)"
+	[ -s "$WORK/netsock64/netsock64.so" ] || die "container build did not produce netsock64.so"
+	cp "$WORK/netsock64/netsock64.so" "$stage/netsock64.so"
+	AUDIT_OBJECTS+=(netsock64.so)
+	ARTIFACTS+=(netsock64.so)
+fi
+
 HELPER_DIGEST=""
 if [ "$WITH_HELPER" = 1 ]; then
 	echo "==> helper build: bin/pattern-refresh in $HELPER_IMAGE"
-	container_run "$HELPER_IMAGE" x86_64 "$WORK/src-helper" -- x86_64 bin/pattern-refresh
+	snapshot "$WORK/src-helper"
+	container_run "$HELPER_IMAGE" x86_64 "$WORK/src-helper" -- bash .portable-build.sh x86_64 bin/pattern-refresh
 	HELPER_DIGEST="$LAST_DIGEST"
 	[ -s "$WORK/src-helper/bin/pattern-refresh" ] || die "helper build did not produce bin/pattern-refresh"
 	cp "$WORK/src-helper/bin/pattern-refresh" "$stage/pattern-refresh"
@@ -267,6 +311,9 @@ fi
 	if [ "$WITH_HELPER" = 1 ]; then
 		printf '  "helper_image": "%s",\n' "$HELPER_IMAGE"
 		printf '  "helper_image_digest": "%s",\n' "$HELPER_DIGEST"
+	fi
+	if [ -n "$NETSOCK_SRC" ]; then
+		printf '  "netsock64_source_sha256": "%s",\n' "$(sha256sum "$NETSOCK_SRC" | cut -d' ' -f1)"
 	fi
 	printf '  "runtime": "%s",\n' "$RUNTIME"
 	printf '  "files": {\n'
