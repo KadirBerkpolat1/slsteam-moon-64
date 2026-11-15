@@ -5,13 +5,16 @@
 #   --host       Use the host toolchain (fast, dev iteration).
 #                Binary's glibc requirement matches your system, so it
 #                may not run on older distros than yours.
-#   --portable   Build inside an Ubuntu 22.04 container (Podman or
-#                Docker). The resulting binary works on any distro with
-#                glibc >= 2.34 (Ubuntu 22.04+, Debian 12+, Fedora 36+,
-#                most modern distros). This is what release builds use.
+#   --portable   Build inside a container. i386: Ubuntu 22.04 (Podman or
+#                Docker), binary needs glibc >= 2.34. x86_64: AlmaLinux
+#                8.10 via scripts/build-portable-container.sh (Podman,
+#                Docker or bubblewrap), which prints the measured floor;
+#                see PORTING.md "Distribution floor". This is what release
+#                builds use. Never falls back to a host build.
 #
 # Options:
-#   --arch ARCH  Target architecture for --host (default: i386, or x86_64 / aarch64).
+#   --arch ARCH  Target architecture (default: i386, or x86_64 / aarch64;
+#                --portable supports i386 and x86_64).
 #
 # Outputs:
 #   bin/SLSsteam.so
@@ -23,6 +26,7 @@
 #   scripts/build.sh --host
 #   scripts/build.sh --host --arch x86_64
 #   scripts/build.sh --portable
+#   scripts/build.sh --portable --arch x86_64
 #   scripts/build.sh --help
 
 set -euo pipefail
@@ -45,7 +49,7 @@ while [ $# -gt 0 ]; do
 			shift
 			;;
 		-h|--help)
-			sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+			sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
 			exit 0
 			;;
 		*) echo "unknown option: \$1 (try --help)" >&2; exit 2 ;;

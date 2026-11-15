@@ -1,12 +1,31 @@
 #!/usr/bin/env bash
 # Portable build implementation. Invoked by scripts/build.sh --portable.
-# Builds inside an Ubuntu 22.04 container. The native helper is then checked
-# separately so it cannot require any glibc symbol newer than GLIBC_2.34.
+#
+#   i386    Builds inside an Ubuntu 22.04 container (scripts/Dockerfile). The
+#           native helper is then checked separately so it cannot require any
+#           glibc symbol newer than GLIBC_2.34.
+#   x86_64  Delegates to scripts/build-portable-container.sh, which builds the
+#           LD_AUDIT objects in AlmaLinux 8.10 and pattern-refresh in Ubuntu
+#           22.04, measures the floor, and refuses on a regression. The results
+#           are then copied into bin/ like every other build.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
+
+ARCH_TO_BUILD="${ARCH:-i386}"
+
+if [ "$ARCH_TO_BUILD" = x86_64 ]; then
+	out="dist/portable/x86_64"
+	"$SCRIPT_DIR/build-portable-container.sh" --arch x86_64 --with-helper --out "$out"
+	# What `make clean` inside the old container did for obj/ and bin/.
+	rm -rf obj bin
+	mkdir -p bin
+	cp "$out/SLSsteam.so" "$out/library-inject.so" "$out/pattern-refresh" bin/
+	echo "==> built: bin/SLSsteam.so, bin/library-inject.so, bin/pattern-refresh (manifest: $out/manifest.json)"
+	exit 0
+fi
 
 # Pick a container runtime: prefer rootless podman, fall back to docker.
 runtime=""
@@ -33,20 +52,10 @@ if [ -z "$runtime" ]; then
 	exit 1
 fi
 
-# The two arches need different toolchains, not just different flags:
-#   i386   Ubuntu 22.04 (glibc 2.35) is enough and keeps the 2.34 floor.
-#   x86_64 the source is C++20 and <cstdlib> redirects strtol to __isoc23_*
-#          (glibc 2.38), and io_base_library_init needs GLIBCXX_3.4.32.
-#          Ubuntu 22.04 cannot link it, so this arch uses 24.04.
-ARCH_TO_BUILD="${ARCH:-i386}"
 case "$ARCH_TO_BUILD" in
 	i386|i486|i586|i686|x86|x86_32)
 		dockerfile="scripts/Dockerfile"
 		image="slsteam-moon-builder"
-		;;
-	x86_64)
-		dockerfile="scripts/Dockerfile.x86_64"
-		image="slsteam-moon-builder-x86_64"
 		;;
 	*)
 		echo "no portable builder for ARCH=$ARCH_TO_BUILD" >&2
@@ -70,10 +79,5 @@ echo "==> portable build (using $runtime, image $image, arch $ARCH_TO_BUILD)"
 	bash -c "make clean && make ARCH=$ARCH_TO_BUILD"
 
 scripts/check-pattern-refresh-abi.sh bin/pattern-refresh
-
-if [ "$ARCH_TO_BUILD" = x86_64 ]; then
-	ceiling="$(readelf -V bin/SLSsteam.so | grep -oE 'GLIBC_2\.[0-9]+' | sort -uV | tail -1)"
-	echo "==> SLSsteam.so glibc floor: $ceiling (host $(getconf GNU_LIBC_VERSION | awk '{print $2}'))"
-fi
 
 echo "==> built: bin/SLSsteam.so, bin/library-inject.so, bin/pattern-refresh"
