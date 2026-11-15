@@ -332,5 +332,5 @@ mkdir -p "$(dirname "$OUT")"
 cp -r "$stage" "$OUT"
 
 echo "==> measured floor ($ARCH, $IMAGE): GLIBC_$glibc GLIBCXX_$glibcxx CXXABI_$cxxabi"
-echo "==> la_version accepts the LD_AUDIT interface version ld.so offers, up to $LAV (see PORTING.md)"
+echo "==> $IMAGE <link.h> has LAV_CURRENT $LAV; la_version negotiation is not checked here (build-release-payload.sh's floor-image load check does)"
 echo "==> wrote $OUT"
