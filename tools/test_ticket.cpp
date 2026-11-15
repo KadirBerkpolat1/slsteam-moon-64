@@ -26,10 +26,22 @@ namespace Ticket
 static_assert(std::is_same_v<decltype(&Ticket::forgetApp), bool (*)(uint32_t)>);
 static_assert(std::is_same_v<decltype(Ticket::SavedTicket::steamId), CSteamId>);
 static_assert(sizeof(CSteamId) == sizeof(uint64_t));
+#if defined(__x86_64__)
+// Verified against steamrt64/steamclient.so (build a57ea463):
+// GetServerPipe (0x19caa90) reads pipeHandle at +0x10, SetAppIdForCurrentPipe
+// (0x17cc520) / BIsInProcessPipe (0x19e50d0) read pid at +0x20, and
+// CServerPipe::ValidateStatics (0x19e64b0) reads m_strProcessName at +0x28.
+// CServerPipe::userHandle is an i386-only field unused on x86_64.
+static_assert(sizeof(CServerPipe) == 0x30);
+static_assert(offsetof(CServerPipe, pipeHandle) == 0x10);
+static_assert(offsetof(CServerPipe, pid) == 0x20);
+static_assert(offsetof(CServerPipe, processName) == 0x28);
+#else
 static_assert(sizeof(CServerPipe) == 0x60);
 static_assert(offsetof(CServerPipe, pipeHandle) == 0x8);
 static_assert(offsetof(CServerPipe, pid) == 0x14);
 static_assert(offsetof(CServerPipe, userHandle) == 0x21);
+#endif
 
 static int g_failures = 0;
 
