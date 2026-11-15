@@ -197,23 +197,27 @@ check "patch_one does not overwrite central original" "$before_sum" "$after_sum"
 # symlink — GNOME renders a symlinked .desktop as "steam.desktop" + untrusted),
 # and NEVER create one the user did not have.
 mkdir -p "$TMP/apps" "$TMP/desk"
+SHORTCUT_HOME="$TMP/shortcut-home"
 printf '[Desktop Entry]\n%s\nName=Steam\nExec=%s %%U\n' "$DC_TAG" "$WRAPPER" > "$TMP/apps/steam.desktop"
 # (a) absent shortcut -> not created
-dc_patch_shortcut "$TMP/desk/steam.desktop"
+DC_HOME="$SHORTCUT_HOME" DC_BACKUP_ROOT="$SHORTCUT_HOME/backup" dc_patch_shortcut "$TMP/desk/steam.desktop"
 check "shortcut not created when absent" "no" "$([ -e "$TMP/desk/steam.desktop" ] && echo yes || echo no)"
 # (b) existing vanilla shortcut -> patched regular file (not a symlink), exec bit
 printf '[Desktop Entry]\nName=Steam\nExec=/usr/games/steam %%U\n' > "$TMP/desk/steam.desktop"
-dc_patch_shortcut "$TMP/desk/steam.desktop"
+DC_HOME="$SHORTCUT_HOME" DC_BACKUP_ROOT="$SHORTCUT_HOME/backup" dc_patch_shortcut "$TMP/desk/steam.desktop"
 check "existing shortcut patched" "patched" "$(dc_classify "$TMP/desk/steam.desktop")"
 check "shortcut is a regular file (not symlink)" "yes" "$([ -f "$TMP/desk/steam.desktop" ] && [ ! -L "$TMP/desk/steam.desktop" ] && echo yes || echo no)"
 check "shortcut exec bit set" "yes" "$([ -x "$TMP/desk/steam.desktop" ] && echo yes || echo no)"
+check "shortcut backup stays in the sandbox" "yes" \
+  "$([ -f "$(DC_BACKUP_ROOT="$SHORTCUT_HOME/backup" dc_backup_path "$TMP/desk/steam.desktop")" ] && echo yes || echo no)"
 
 # An existing desktop shortcut that is still the Debian Install Steam stub must
 # remain vanilla until the Steam data root has bootstrapped.
 PREBOOT_SHORTCUT="$TMP/desk/prebootstrap.desktop"
 printf '[Desktop Entry]\nName=Install Steam\nExec=/usr/games/steam %%U\n' > "$PREBOOT_SHORTCUT"
 preboot_before="$(sha256sum "$PREBOOT_SHORTCUT" | awk '{print $1}')"
-DC_STEAM_INSTALLED=0 dc_patch_shortcut "$PREBOOT_SHORTCUT"
+DC_HOME="$SHORTCUT_HOME" DC_BACKUP_ROOT="$SHORTCUT_HOME/backup" DC_STEAM_INSTALLED=0 \
+  dc_patch_shortcut "$PREBOOT_SHORTCUT"
 check "pre-bootstrap shortcut leaves installer stub vanilla" "stub" "$(dc_classify "$PREBOOT_SHORTCUT")"
 check "pre-bootstrap shortcut is byte-identical" "$preboot_before" \
   "$(sha256sum "$PREBOOT_SHORTCUT" | awk '{print $1}')"
@@ -221,7 +225,8 @@ PREBOOT_SYMLINK_TARGET="$TMP/installer-target.desktop"
 printf '[Desktop Entry]\nName=Install Steam\nExec=/usr/games/steam %%U\n' > "$PREBOOT_SYMLINK_TARGET"
 PREBOOT_SYMLINK="$TMP/desk/prebootstrap-link.desktop"
 ln -s "$PREBOOT_SYMLINK_TARGET" "$PREBOOT_SYMLINK"
-DC_STEAM_INSTALLED=0 dc_patch_shortcut "$PREBOOT_SYMLINK"
+DC_HOME="$SHORTCUT_HOME" DC_BACKUP_ROOT="$SHORTCUT_HOME/backup" DC_STEAM_INSTALLED=0 \
+  dc_patch_shortcut "$PREBOOT_SYMLINK"
 check "pre-bootstrap installer symlink is preserved" "yes" \
   "$([ -L "$PREBOOT_SYMLINK" ] && echo yes || echo no)"
 check "pre-bootstrap installer symlink still targets stub" "$PREBOOT_SYMLINK_TARGET" \

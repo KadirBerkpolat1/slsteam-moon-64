@@ -45,6 +45,12 @@ FN="$(awk '
 HOME_DIR="$(mktemp -d)"
 export HOME="$HOME_DIR"
 export XDG_STATE_HOME="$HOME_DIR/.local/state"
+# systemctl reaches the real user manager whatever HOME is set to, so the
+# wrapper's guardian kick must hit a stub, never the live service.
+mkdir -p "$HOME_DIR/fake-bin"
+printf '#!/bin/sh\nexit 1\n' > "$HOME_DIR/fake-bin/systemctl"
+chmod +x "$HOME_DIR/fake-bin/systemctl"
+export PATH="$HOME_DIR/fake-bin:$PATH"
 SLSDIR="$HOME_DIR/.local/share/SLSsteam"
 GUARD_DIR="$XDG_STATE_HOME/slsteam-moon"
 

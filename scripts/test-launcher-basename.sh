@@ -160,6 +160,12 @@ FN="$(awk '
 W_HOME="$TMP/wrapper-home"
 export HOME="$W_HOME"
 export XDG_STATE_HOME="$W_HOME/.local/state"
+# systemctl reaches the real user manager whatever HOME is set to, so the
+# wrapper's guardian kick must hit a stub, never the live service.
+mkdir -p "$W_HOME/fake-bin"
+printf '#!/bin/sh\nexit 1\n' > "$W_HOME/fake-bin/systemctl"
+chmod +x "$W_HOME/fake-bin/systemctl"
+export PATH="$W_HOME/fake-bin:$PATH"
 W_SLSDIR="$W_HOME/.local/share/SLSsteam"
 W_STEAM_ROOT="$W_HOME/steam-root"
 W_BACKUP="$W_SLSDIR/system-launcher-backup/usr/bin/steam.orig"
