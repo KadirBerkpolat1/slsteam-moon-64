@@ -445,8 +445,11 @@ test-memhlp-prologue:
 	/tmp/test_memhlp_prologue
 
 test-memhlp-pic:
-	$(CXX) -std=c++20 -Wall -Wextra -Wpedantic -I src -I include \
-		tools/test_memhlp_pic.cpp -o /tmp/test_memhlp_pic
+	$(CXX) -std=c++20 -D_GLIBCXX_USE_CXX11_ABI=0 -ffunction-sections -fdata-sections \
+		-Wall -Wextra -Wpedantic -I src -I include \
+		tools/test_memhlp_pic.cpp src/memhlp.cpp \
+		$(if $(wildcard lib/$(HOST_ARCH)/liblibmem.a),lib/$(HOST_ARCH)/liblibmem.a,lib/liblibmem.a) \
+		-Wl,--gc-sections -ldl -lpthread -o /tmp/test_memhlp_pic
 	/tmp/test_memhlp_pic
 
 test-utils-sha:

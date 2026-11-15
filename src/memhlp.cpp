@@ -8,6 +8,8 @@
 #include "libmem/libmem.h"
 
 #include <map>
+#include <cstdint>
+#include <cstring>
 #include <optional>
 #include <vector>
 
@@ -293,13 +295,23 @@ bool MemHlp::fixPICThunkCall(const char* name, lm_address_t fn, lm_address_t tra
 {
 	g_pLog->debug("Fixing PIC thunks for %s's trampoline\n", name);
 	constexpr unsigned int maxBytes = 0x5; //Minimum bytes needed to detour a function, so our tramp will at least be of this size
-	
+	auto isExecutableAddress = [](lm_address_t addr) -> bool
+	{
+		if (addr == 0 || addr == LM_ADDRESS_BAD)
+			return false;
+		lm_segment_t seg {};
+		return LM_FindSegment(addr, &seg)
+		    && (seg.prot & LM_PROT_XR) == LM_PROT_XR
+		    && addr >= seg.base
+		    && addr < seg.end;
+	};
+
 	lm_inst_t inst;
 	for(unsigned int curTrampOffset = 0; curTrampOffset <= maxBytes; )
 	{
 		lm_address_t startAddress = tramp + curTrampOffset;
 
-		if (!LM_Disassemble(startAddress, &inst))
+		if (!isExecutableAddress(startAddress) || !LM_Disassemble(startAddress, &inst))
 		{
 			g_pLog->debug("Unable to dissassemble code at %p\n", tramp + curTrampOffset);
 			return false;
@@ -308,22 +320,23 @@ bool MemHlp::fixPICThunkCall(const char* name, lm_address_t fn, lm_address_t tra
 		curTrampOffset += inst.size;
 		g_pLog->debug("%p: %s %s\n", inst.address, inst.mnemonic, inst.op_str);
 		
-		if (strcmp(inst.mnemonic, "call") != 0)
+		if (strcmp(inst.mnemonic, "call") != 0 || inst.size != 5 || inst.bytes[0] != 0xE8)
 			continue;
 
-		//Calculate the call address manually with it's original location
-		lm_address_t followAddress = fn + curTrampOffset + *reinterpret_cast<lm_address_t*>(startAddress + 1);
+		//Calculate the call address manually with its original location (rel32 is signed 32-bit)
+		std::int32_t rel32 = 0;
+		std::memcpy(&rel32, reinterpret_cast<const void*>(startAddress + 1), sizeof(rel32));
+		lm_address_t followAddress = resolveRel32Target(fn + curTrampOffset, rel32);
 		bool isIPCThunk = true;
 		char newInstr[256] = {};
 
 		for(unsigned int i = 0; i < 2; i++) //Dissassemble next 2 instructions and check if they're an actual IPC thunk call
 		{
-			if (!LM_Disassemble(followAddress, &inst))
+			if (!isExecutableAddress(followAddress) || !LM_Disassemble(followAddress, &inst))
 			{
 				g_pLog->debug("Unable to dissassemble code at %p\n", followAddress);
 				return false;
 			}
-
 			followAddress += inst.size;
 
 			g_pLog->debug("%p: %s %s\n", inst.address, inst.mnemonic, inst.op_str);
@@ -376,7 +389,12 @@ bool MemHlp::fixPICThunkCall(const char* name, lm_address_t fn, lm_address_t tra
 			printf("Unable to assemble instruction %s!\n", newInstr);
 			return false;
 		}
-
+		if (inst.size != 5)
+		{
+			g_pLog->debug("Refusing to patch %s PIC thunk with %zu-byte instruction\n",
+			              name, static_cast<std::size_t>(inst.size));
+			return false;
+		}
 		lm_prot_t oldProt;
 		LM_ProtMemory(startAddress, inst.size, LM_PROT_XRW, &oldProt);
 		LM_WriteMemory(startAddress, inst.bytes, inst.size);
