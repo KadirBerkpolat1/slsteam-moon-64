@@ -9,12 +9,11 @@ For building, see [`docs/BUILDING.md`](docs/BUILDING.md).
 
 This branch also builds for the 64-bit `steamrt64` client — see
 [`PORTING.md`](PORTING.md) for the arch matrix, the measured struct layouts,
-and the pattern table: all 38 required patterns resolve, so ownership and DLC
-work, and every optional locator resolves except the i386-only
-`OnChunkUnpacked[regparm3]`, which has no x86_64 counterpart. It has been
-checked in an LD_AUDIT harness against the real client libraries, not yet
-inside a running Steam client, so restart-less licence refresh and the other
-runtime paths are still unobserved.
+and the pattern table. The required set resolves (38/38), including the hooks
+ownership and DLC use, and every optional locator resolves except the
+i386-only `OnChunkUnpacked[regparm3]`, which has no x86_64 counterpart. This
+was verified in an LD_AUDIT harness against the real client libraries. Nothing
+has run inside a running Steam client, so runtime behaviour is unconfirmed.
 
 ## Credits
 

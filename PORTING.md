@@ -406,7 +406,7 @@ independent proofs on `steamclient.so` build `a57ea463`:
 | locator | proof 1 | proof 2 |
 |---|---|---|
 | `CCMInterface::RecvPkt` | only function referencing `"CCMInterface::RecvPkt"`, `"../clientdll/cminterface.cpp"` and the heartbeat-response string | calls `CProtoBufMsgBase::InitFromPacket`, `CJobMgr::BRouteMsgToJob`, `CSteamEngine::PostCallback` and the CNetMsg factory (17 callers, matching i386) |
-| `CUser::ProcessPendingLicenseUpdates` | iterates `CUser::m_vecPendingLicenses` (+0x2588) and calls `CAppInfoCache::GetOrAddAppData`, matching i386 | single external caller, matching i386; calls the `LicensesUpdated_t` notifier |
+| `CUser::ProcessPendingLicenseUpdates` | iterates `CUser::m_vecPendingLicenses` (+0x2588) and per entry calls the package-keyed lookup at `0x102e680` (`GetOrAddPackageData` role, receiver `CUser+0x1440`), matching i386; `CAppInfoCache::GetOrAddAppData` is a different callee, `0x102e360`, called at `0x185132c`, `0x18513a9` and `0x1851547` | single external caller, matching i386; calls the `LicensesUpdated_t` notifier |
 | `CDepotDownloadMgr::BuildDepotDependency` | only function carrying `"Failed to initialize depot %u, manifest %llu (%s)"`, `"count >= 0"` and `"../public/tier1/utlvector.h"` | exactly 4 callers × 2 call sites (flag 0 and flag 1), matching i386's 4 callers |
 | `CUser::m_CompatManager` | the called constructor writes the vtable whose RTTI name is `14CCompatManager` | inside `CUser::CUser`, `lea rax,[rbx+0x4a58]` hands the `CUser` to that constructor |
 | `ParentalSignatureCheck` | directly follows the RSA signature-verification call inside the "Validating parental settings" function | exact `84 C0 75 24` guarding `"Parental settings signature did not verify for account ID %u"` (i386: `84 C0 75 27`) |
@@ -435,7 +435,7 @@ uniquely in the installed libraries.
 
 | pattern | what it enables on x86_64 |
 |---|---|
-| `CUser::MarkLicenseAsChanged` | the mark capability of `LicenseRefreshPolicy::decide()` (`src/feats/license_refresh_policy.hpp`); with `ProcessPendingLicenseUpdates` from the first batch and the `GetOrAddAppData` guard below, every input it checks before returning `Process` instead of `Defer` is now available, i.e. restart-less licence refresh |
+| `CUser::MarkLicenseAsChanged` | the mark capability of `LicenseRefreshPolicy::decide()` (`src/feats/license_refresh_policy.hpp`); with `ProcessPendingLicenseUpdates` from the first batch and the `GetOrAddAppData` guard below, every input it checks before returning `Process` instead of `Defer` now resolves, so by source the restart-less licence refresh path is no longer gated off (not observed running, see below) |
 | `CUser::NotifyLicensesUpdated` | the `LicensesUpdated_t` broadcast used by the deferred-refresh fallback and the cold-cache reconcile (`src/feats/packagepatch.cpp`) |
 | `CAppInfoCache::GetOrAddAppData`, `SkipFlagReference`, `ShaReference` | the unresolved-app skip guard (`hkGetOrAddAppData`, `src/feats/appinfostate.cpp`); the x86_64 field offsets come from `AppDataLayout::derive64` (`src/feats/appdata_layout.hpp`) |
 | `CAppInfoCache::ThreadedReadFromDisk` | live appinfo reloads (`AppInfoState::reloadFromDisk`) |
@@ -461,8 +461,9 @@ both required and resolved, and logs "boot path remains available" when the
 runtime refresh capability is incomplete. `CUser::CheckAppOwnership` and
 `CUser::GetSubscribedApps` are required and resolve. The DLC vtable hooks
 (`src/hooks.cpp:907-912`) are placed from the required
-`IClientApps::RunIPCFrame` (`src/hooks.cpp:1512`). Package 0 injection at boot
-works.
+`IClientApps::RunIPCFrame` (`src/hooks.cpp:1512`). By source, the boot path
+for Package 0 injection is intact and every input it requires resolves; it
+has not been observed in a running client.
 
 The resolved `CCMInterface::RecvPkt` hook does **not** stand in for licence
 refresh. On `kEMsgClientLicenseList`, `src/feats/cmrecv.cpp:76-95` only calls

@@ -1512,7 +1512,7 @@ namespace Patterns
 			// Proof 1: Reads CUser::m_vecPendingLicenses (+0x2588, m_Size at +0x2598,
 			// confirmed by "m_vecPendingLicenses" in CUser::ValidateStatics 0x186bdd3),
 			// iterates PendingLicense_t entries skipping -1, and calls 0x102e680
-			// (CAppInfoCache::GetOrAddAppData) checking [rax+0x18] == 3 (i386 0x1a0d7a0).
+			// (package-keyed lookup, GetOrAddPackageData role, receiver CUser+0x1440) checking [rax+0x18] == 3 (i386 0x1a0d7a0).
 			// Proof 2: Single external caller (0x187bca0, matching i386 0x1a1c480) and
 			// calls 0x184a260 ("17LicensesUpdated_t" notifier), 0x102e680, 0x10282e0,
 			// 0x1850700, 0x18478c0.
