@@ -1056,14 +1056,37 @@ namespace Patterns
 		Pattern_t InitFromPacket
 		{
 			"CProtoBufMsgBase::InitFromPacket",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Contains assert string "CProtoBufMsg::InitFromPacket( IMsgNetPacket )".
+			// Proof 2: Exact 166 callers (matching i386 0x27f78a0's 166 callers) and
+			// identical body (checks [rbx+0x19], zeroes [rbx+0x38], decrements m_iRefs).
+			// Unique at 24/43 tokens.
+			"41 55 41 54 55 53 48 89 FB 48 83 EC 48 48 8B 05 ? ? ? ? "
+			"64 4C 8B 24 25 28 00 00 00 4C 89 64 24 38 49 89 F4 8B 10 31 C0 85 D2",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 58 8B 45 ? 8B 8D",
 			SigFollowMode::Relative
+#endif
 		};
 		Pattern_t Send
 		{
 			"CProtoBufMsgBase::Send",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Exact 2 callers (0x1130e60 and 0x25ec4d0, matching i386 0x27f7d50's
+			// 2 callers), warns at ../common/msgprotobuf.cpp line 0x640 ("Sending msg of
+			// type '%s' with timeout=0...").
+			// Proof 2: Stores ByteSize in [rbx+0x2c], calls [rax+0x48] on [rbx+0x38],
+			// and returns `lea eax, [rax + rbp + 8]`.  Unique at 17/47 tokens.
+			"55 53 48 89 FB 48 83 EC 08 80 3D ? ? ? ? 00 48 8B 7F 30 75 0A "
+			"8B 87 C0 00 00 00 85 C0 74 30 E8 ? ? ? ? 48 8B 7B 38 48 89 C5 89 43 2C",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 59 5A 50 56 E8 ? ? ? ? 83 C4 0C",
 			SigFollowMode::Relative
+#endif
 		};
 	};
 
@@ -1686,8 +1709,20 @@ namespace Patterns
 		Pattern_t LoadPackage
 		{
 			"CPackageInfoCache::LoadPackage",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Contains assert "Corrupt data in buffer for package %u, CLN %u,"
+			// in ../clientdll/appdatacache.cpp; called by CPackageInfoCache::ReadFromDisk
+			// (0x1036c00).
+			// Proof 2: Populates PackageInfo (AppIdVec at +0x40, DepotIdVec at +0x58)
+			// via CUtlMemory<uint32_t>::Grow (0x102d4f0).  Unique at 20/47 tokens.
+			"41 57 41 56 49 89 F6 41 55 41 54 55 53 48 89 FB 48 81 EC 18 01 00 00 "
+			"4C 8B 25 ? ? ? ? 89 54 24 14 48 63 69 10 64 4C 8B 3C 25 28 00 00 00",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 83 C4 10 84 C0 0F 84 ? ? ? ? 8B 95 ? ? FF FF 8B 7A 18 83 FF FF",
 			SigFollowMode::Relative
+#endif
 		};
 	}
 
@@ -1696,8 +1731,21 @@ namespace Patterns
 		Pattern_t Grow
 		{
 			"CUtlMemory::Grow",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Call site 0x1036491 inside CPackageInfoCache::LoadPackage
+			// (0x10361a0) growing PackageInfo::AppIdVec ([rbx+0x40], size at [rbx+0x50]).
+			// Proof 2: Target 0x102d4f0 has 101 callers (matching i386 99 callers), uses
+			// 4-byte element stride (`mov ecx, 4; lea rsi, [rax*4]`) and asserts at
+			// ../public/tier1/utlmemory.h line 0x1fa (identical to i386 0x116eb80).
+			// Anchoring at the LoadPackage call site disambiguates the dozens of
+			// identical 4-byte CUtlMemory<T>::Grow copies; unique at 12/26 tokens.
+			"E8 ? ? ? ? 8B 43 50 8D 70 01 EB 82 66 90 48 8B 6B 30 C7 43 68 00 00 00 00",
+			SigFollowMode::Relative
+#else
 			"E8 ? ? ? ? 8B 85 ? ? FF FF 83 C4 10 8B 40 44 89 85 ? ? FF FF 83 C0 01 E9",
 			SigFollowMode::Relative
+#endif
 		};
 	}
 
