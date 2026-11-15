@@ -9,7 +9,7 @@ typedef void(*FileModifyEvent_t)();
 
 class CFileWatcher
 {
-	pthread_t watchThread;
+	pthread_t watchThread {};
 
 public:
 	int notifyFd;

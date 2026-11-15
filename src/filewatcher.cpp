@@ -147,7 +147,10 @@ CFileWatcher::CFileWatcher(FileModifyEvent_t onModify)
 
 CFileWatcher::~CFileWatcher()
 {
-	if (watchThread)
+	// At exit stopAllForShutdown() has already joined the thread before the
+	// static destructors run; cancelling that dead handle reads its unmapped
+	// stack.
+	if (watchThread && !g_watcherStopping.load(std::memory_order_relaxed))
 	{
 		stop();
 	}
