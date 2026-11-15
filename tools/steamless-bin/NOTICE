@@ -1,0 +1,18 @@
+Steamless
+
+Author:  atom0s
+Source:  https://github.com/atom0s/Steamless
+License: Creative Commons Attribution-NonCommercial-NoDerivatives 4.0
+         International (CC BY-NC-ND 4.0) -- see LICENSE in this directory
+         and https://creativecommons.org/licenses/by-nc-nd/4.0/legalcode
+
+Everything in this directory (Steamless.CLI.exe, Steamless.CLI.exe.config,
+Plugins/*.dll) is atom0s's Steamless, redistributed verbatim and unmodified
+for non-commercial use. It is NOT covered by this repository's AGPL-3.0
+licence and is not linked into SLSsteam.so: SLSsteam only runs
+Steamless.CLI.exe as a separate program, under Wine, through
+tools/steamstub-bypass/run-steamless.sh for games whose Steam launch options
+carry --steamless.
+
+The full licence text is also kept in docs/LICENSE/steamless. To use a
+different Steamless version, get it from the upstream project above.

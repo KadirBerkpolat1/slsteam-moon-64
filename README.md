@@ -32,6 +32,17 @@ Reference material:
   some features were ported from or inspired by this project.
   Full credit to its author.
 
+## Licence
+
+AGPL-3.0-only (see [`LICENSE`](LICENSE)), except
+[`tools/steamless-bin/`](tools/steamless-bin/), which is under a different licence:
+it holds atom0s's [Steamless](https://github.com/atom0s/Steamless) binaries,
+redistributed verbatim under CC BY-NC-ND 4.0 (non-commercial, no derivatives).
+They are not part of `SLSsteam.so`; SLSsteam runs `Steamless.CLI.exe` as a
+separate program, and only for games whose launch options carry `--steamless`.
+See [`tools/steamless-bin/NOTICE`](tools/steamless-bin/NOTICE). Third-party
+licences for the bundled libraries are in [`docs/LICENSE/`](docs/LICENSE/).
+
 ## Support
 
 Open an issue: https://github.com/swwayps/slsteam-moon/issues
