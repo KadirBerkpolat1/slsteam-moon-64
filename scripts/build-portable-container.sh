@@ -147,11 +147,13 @@ trap cleanup EXIT
 JOBS="$(nproc 2>/dev/null || echo 2)"
 LAST_DIGEST=""
 
-# snapshot DIR: a clean tree of COMMIT plus the in-container build step.
+# snapshot DIR: a clean tree of COMMIT plus the in-container build step and the
+# load check it runs.
 snapshot() {
 	mkdir -p "$1"
 	git -C "$REPO_ROOT" archive --format=tar "$COMMIT" | tar -x -C "$1"
 	cp "$SCRIPT_DIR/_portable-build.sh" "$1/.portable-build.sh"
+	cp "$SCRIPT_DIR/_audit-load-check.sh" "$1/.audit-load-check.sh"
 }
 
 # container_run IMAGE PROVISION_ARCH DIR -- CMD...
@@ -238,17 +240,20 @@ if [ -n "$NETSOCK_SRC" ]; then
 	echo "==> netsock64.so from $NETSOCK_SRC in $IMAGE"
 	mkdir -p "$WORK/netsock64"
 	cp "$NETSOCK_SRC" "$WORK/netsock64/steamclient_audit64.c"
+	cp "$SCRIPT_DIR/_audit-load-check.sh" "$WORK/netsock64/audit-load-check.sh"
 	cat > "$WORK/netsock64/build.sh" <<-'EOF'
 	set -euo pipefail
 	source /etc/portable-env
 	gcc --version | sed -n 1p
 	gcc -O2 -Wall -Wextra -shared -fPIC -o netsock64.so steamclient_audit64.c -ldl
-	out="$(LD_AUDIT="$PWD/netsock64.so" /bin/true 2>&1)" || { echo "$out" >&2; exit 1; }
-	if [ -n "$out" ]; then
-		echo "this image's ld.so rejected netsock64.so: $out" >&2
-		exit 1
-	fi
-	echo "==> netsock64.so loads as an LD_AUDIT module under this image's ld.so"
+	lc="$(sh audit-load-check.sh "$PWD/netsock64.so")"
+	head="$(printf '%s\n' "$lc" | head -1)"
+	msg="$(printf '%s\n' "$lc" | tail -n +2)"
+	case "$head" in
+		*" rc=0 la_objopen_lookups="[1-9]*) [ -z "$msg" ] || { echo "this image's ld.so complained about netsock64.so: $msg" >&2; exit 1; } ;;
+		*) echo "this image's ld.so did not accept netsock64.so as an audit module: $head $msg" >&2; exit 1 ;;
+	esac
+	echo "==> netsock64.so accepted by this image's ld.so as an LD_AUDIT module: rc 0, no message, la_objopen lookups ${head##*la_objopen_lookups=}"
 	EOF
 	container_run "$IMAGE" "$ARCH" "$WORK/netsock64" -- bash build.sh
 	[ "$LAST_DIGEST" = "$IMAGE_DIGEST" ] ||

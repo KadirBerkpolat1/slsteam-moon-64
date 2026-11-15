@@ -167,18 +167,7 @@ if [ "$LOAD_CHECK" = 1 ]; then
 	fi
 	mkdir -p "$WORK/lc"
 	cp "$SO" "$NS" "$WORK/lc/"
-	cat > "$WORK/lc/check.sh" <<-'EOF'
-	so="$1"
-	glibc=""
-	for l in /lib/x86_64-linux-gnu/libc.so.6 /lib64/libc.so.6 /usr/lib64/libc.so.6; do
-		[ -x "$l" ] && { glibc=$("$l" 2>&1 | head -1 | sed 's/.*version \([0-9.]*\).*/\1/; s/\.$//'); break; }
-	done
-	out=$(LD_AUDIT=$so /bin/true 2>&1); rc=$?
-	n=$(LD_DEBUG=symbols LD_AUDIT=$so /bin/true 2>&1 |
-		awk -v f="lookup in file=$so" 'index($0, "symbol=la_objopen;") && index($0, f) {n++} END {print n+0}')
-	printf 'glibc=%s rc=%s la_objopen_lookups=%s\n' "$glibc" "$rc" "$n"
-	printf '%s\n' "$out"
-	EOF
+	cp "$SCRIPT_DIR/_audit-load-check.sh" "$WORK/lc/check.sh"
 	lc_glibc=""
 	for name in SLSsteam.so netsock64.so; do
 		lc_out="$(bwrap --unshare-user --uid 0 --gid 0 --unshare-net --unshare-pid --die-with-parent \
