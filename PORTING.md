@@ -104,16 +104,23 @@ feature is off, not wrong.
 
 ## Distribution floor — read this before shipping a binary
 
-There are two floors and they differ. Ship against the **effective** one.
+The x86_64 container build ships against its symbol floor. Do not advertise
+anything lower than the measured numbers below.
 
 | floor | x86_64 (`scripts/build.sh --portable --arch x86_64`) |
 |---|---|
 | symbol floor (`readelf -V`) | `GLIBC_2.17`, `GLIBCXX_3.4.22`, `CXXABI_1.3.11` |
-| **effective floor today** | **glibc 2.34** — see "LD_AUDIT interface version" |
+| loader gate (`la_version`) | none: an old-glibc loader negotiates interface v1 — see "LD_AUDIT interface version" |
 
-The effective floor is higher because of `la_version`, not because of any
-symbol. A pending `src/` change to `la_version` is expected to bring it down
-toward the symbol floor; until it lands and is re-measured, 2.17 is **not** a
+`la_version` used to keep the effective floor at glibc 2.34: the audit objects
+always asked for interface v2, and loaders that only know v1 abort. They now
+answer with the version the loader offers, so an old-glibc loader negotiates
+instead of aborting, and the AlmaLinux build is no longer loader-gated at 2.34.
+
+What remains above the symbol floor is the host's own toolchain, not the
+loader. A host build stays at `GLIBC_2.38`. The i386 container build stays near
+2.34 (see "i386"). The AlmaLinux-built objects have not been re-run through the
+load matrix since the fix, so 2.17 is the measured symbol floor, not a measured
 working floor.
 
 ### Symbol floor by build image
@@ -143,15 +150,16 @@ at 3.4.22.
 
 ### LD_AUDIT interface version
 
-`la_version()` (`src/main.cpp`, `tools/library-inject/main.cpp`) returns
-`LAV_CURRENT` regardless of the version `ld.so` offers. The host, `ubuntu:22.04`
-and `almalinux:8.10` headers all define `LAV_CURRENT 2` (AlmaLinux 8's glibc
-2.28 backports interface v2), so every shipped build asks for v2. A loader that
-only knows v1 rejects them, and on the versions below it **aborts the process**
-instead of ignoring the module.
+`la_version()` (`src/main.cpp`, `tools/library-inject/main.cpp`) answers with
+the version `ld.so` offers, capped at `LAV_CURRENT`. It used to return
+`LAV_CURRENT` unconditionally. The host, `ubuntu:22.04` and `almalinux:8.10`
+headers all define `LAV_CURRENT 2` (AlmaLinux 8's glibc 2.28 backports
+interface v2), so every shipped build asked for v2. A loader that only knows v1
+rejected them, and on the versions below it **aborted the process** instead of
+ignoring the module.
 
-Measured by loading the AlmaLinux-built objects with `LD_AUDIT` into
-`/bin/true` under each stock image's own `ld.so` and `libstdc++`:
+Measured before the fix, by loading the AlmaLinux-built objects with `LD_AUDIT`
+into `/bin/true` under each stock image's own `ld.so` and `libstdc++`:
 
 | image | glibc | result |
 |---|---|---|
@@ -165,10 +173,19 @@ Measured by loading the AlmaLinux-built objects with `LD_AUDIT` into
 | `almalinux:8.10` | 2.28 | loads (vendor backport of interface v2) |
 
 A trivial audit module compiled in `debian:11` itself loads there, so the abort
-is the version request, not the toolchain. The host build and the
-`ubuntu:22.04` build disassemble to the same `la_version` returning 2. That is
-why the effective floor is 2.34 and not 2.17: on 2.33 and older, Steam started
-with `LD_AUDIT` dies in the loader.
+was the version request, not the toolchain. That is what held the effective
+floor at 2.34.
+
+After the fix, measured on real distro loaders (rootfs under bwrap):
+`la_objopen`/`la_objsearch` fire on `fedora:34` (2.33), `ubuntu:20.04` and i386
+`debian:11` (2.31), and `la_symbind` still fires for a `-z now` executable on
+2.31, 2.33 and 2.34, so a BIND_NOW client is still interposed under a v1
+loader. Every hook the objects define exists in interface v1. Those runs used
+`library-inject.so` and a pure-C probe, not the AlmaLinux-built `SLSsteam.so`.
+
+Negotiation does not lower a host build's floor: its symbol versions
+(`GLIBC_2.38`, `GLIBCXX_3.4.32`) stop `dlmopen` on older glibc before
+`la_version` is called, and `ld.so` then ignores the module (rc 0).
 
 Not verified: none of this was run inside the Steam client. The load test
 proves that the loader resolves every version need and accepts the audit
@@ -180,10 +197,11 @@ one in front of the host's was not measured.
 
 `scripts/build.sh --portable` (Ubuntu 22.04) measures `GLIBC_2.34`,
 `GLIBCXX_3.4.30`, `CXXABI_1.3.13` for `SLSsteam.so` (same forcing symbols as
-x86_64 on 22.04) and `GLIBC_2.4`, `GLIBCXX_3.4.29` for `library-inject.so`.
-Both request audit interface v2 as well. That already equals the effective
-floor, so the AlmaLinux treatment would gain nothing today, and it is not
-available yet anyway:
+x86_64 on 22.04), plus the `GCC_7.0.0` (`libgcc_s.so.1`) and
+`GLIBC_ABI_GNU_TLS` (`libc.so.6`) version needs, and `GLIBC_2.4`,
+`GLIBCXX_3.4.29` for `library-inject.so`. Both negotiate the audit interface
+too, so the floor near 2.34 is the Ubuntu 22.04 toolchain's, not the loader's.
+The AlmaLinux treatment is not available for i386 yet:
 
 - gcc-toolset-13 on AlmaLinux 8 ships no 32-bit libstdc++ headers
   (`bits/c++config.h: No such file or directory`, measured);
@@ -191,8 +209,8 @@ available yet anyway:
   (27 times, `nm -u`), a `GLIBC_2.32` symbol, so linking against glibc < 2.32
   fails until it is rebuilt from source.
 
-The i386 loader behaviour on <= 2.33 was not measured separately. It is the
-same `ld.so` code path.
+The pre-fix abort table above is x86_64. On i386 only the post-fix probe on
+`debian:11` (2.31) was measured.
 
 ### Container build
 
