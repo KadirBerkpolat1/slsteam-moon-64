@@ -319,9 +319,10 @@ void checkX86_64(
 		expect(static_cast<std::uint8_t>(client[parental + 2]) == 0x75,
 		       "ParentalSignatureCheck: the patched byte is not the jne");
 	}
-	expect(false,
-	       "CAPIJob::GetPlayerStats: not ported to x86_64 "
-	       "(degrades stats-job debug trace)");
+	(void)resolveUnique(
+		client, "CAPIJob::GetPlayerStats",
+		"41 57 31 F6 41 56 41 55 41 54 55 53 48 81 EC ? ? 00 00 64 48 8B 1C 25 28 00 00 00 48 89 9C 24 ? ? 00 00 48 89 FB 48 8D 44 24 ? 48 89 C7 48 89 04 24 E8 ? ? ? ? 48 8D 84 24 ? ? 00 00 31 F6 48 89 C7 48 89 44 24 08 E8 ? ? ? ? 48 8B AB ? ? 00 00",
+		source);
 	const std::size_t compat = resolveUnique(
 		client, "CUser::m_CompatManager",
 		"48 8D 83 ? ? 00 00 48 89 DE 48 89 C7 48 89 84 24 ? ? 00 00 E8 ? ? ? ? 66 0F 6F 1D",

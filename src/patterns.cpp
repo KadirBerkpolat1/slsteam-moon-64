@@ -1092,7 +1092,18 @@ namespace Patterns
 		Pattern_t GetPlayerStats
 		{
 			"CAPIJob::GetPlayerStats",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Only function (0x1956510) referencing "Player.GetUserStats#1".
+			// Proof 2: Single external caller (0x1956f00, matching i386 0x1b32c10), which
+			// carries "Bad GameID passed to RequestUserStats()", "17GSStatsReceived_t",
+			// "19UserStatsReceived_t", "UserStatsLock", and "[AppID %u] CAPIJobRequestUserStats
+			// - no connection to Steam", passing `this` directly to the job body.
+			// Masks frame size, canary spill, stack object offsets, calls, and [rbx+0x1a0].
+			"41 57 31 F6 41 56 41 55 41 54 55 53 48 81 EC ? ? 00 00 64 48 8B 1C 25 28 00 00 00 48 89 9C 24 ? ? 00 00 48 89 FB 48 8D 44 24 ? 48 89 C7 48 89 04 24 E8 ? ? ? ? 48 8D 84 24 ? ? 00 00 31 F6 48 89 C7 48 89 44 24 08 E8 ? ? ? ? 48 8B AB ? ? 00 00",
+#else
 			"55 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 53 81 EC ? ? 00 00 8B 75 08 89 B5 ? ? FF FF 89 FB 65 A1 14 00 00 00 89 45 E4 31 C0 8D 85 ? ? FF FF 6A 00 50",
+#endif
 			SigFollowMode::None
 		};
 	}
