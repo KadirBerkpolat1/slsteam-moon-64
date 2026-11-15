@@ -118,10 +118,13 @@ INCOMPATIBLE_VERSION="selftest-incompatible-$$"
 cleanup() {
     rm -rf "dist/slsteam-moon-${STALE_VERSION}" \
            "dist/slsteam-moon-linux-${STALE_VERSION}.zip" \
+           "dist/slsteam-moon-linux-${STALE_VERSION}.zip.sha256" \
            "dist/slsteam-moon-${TEST_VERSION}" \
            "dist/slsteam-moon-linux-${TEST_VERSION}.zip" \
+           "dist/slsteam-moon-linux-${TEST_VERSION}.zip.sha256" \
            "dist/slsteam-moon-${INCOMPATIBLE_VERSION}" \
-           "dist/slsteam-moon-linux-${INCOMPATIBLE_VERSION}.zip" "$ABI_TMP"
+           "dist/slsteam-moon-linux-${INCOMPATIBLE_VERSION}.zip" \
+           "dist/slsteam-moon-linux-${INCOMPATIBLE_VERSION}.zip.sha256" "$ABI_TMP"
     for f in "${STUBBED[@]}"; do rm -f "$f"; done
     for f in "${BACKED_UP[@]}"; do cp -a "$BACKUP_DIR/$(basename "$f")" "$f"; done
     rm -rf "$BACKUP_DIR"
