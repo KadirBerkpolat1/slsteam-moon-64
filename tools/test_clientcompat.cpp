@@ -280,6 +280,19 @@ int main(int argc, char** argv)
 	check(!CompatLive::decodeManagerOffset(retired).has_value(),
 	      "the retired pre-2026-10 locator form is rejected");
 
+	const std::uint8_t locator64[] = {0x48, 0x8d, 0x83, 0x58, 0x4a, 0x00, 0x00};
+	const auto decoded64 = CompatLive::decodeManagerOffset64(locator64);
+	check(decoded64.has_value() && *decoded64 == 0x4a58,
+	      "the x86_64 CUser member locator decodes its little-endian displacement");
+	const std::uint8_t invalid64_sib[] = {0x48, 0x8d, 0x84, 0x24, 0x58, 0x4a, 0x00};
+	check(!CompatLive::decodeManagerOffset64(invalid64_sib).has_value(),
+	      "x86_64 decoder rejects SIB-encoded stack LEA");
+	const std::uint8_t invalid64_neg[] = {0x48, 0x8d, 0x83, 0xf0, 0xff, 0xff, 0xff};
+	check(!CompatLive::decodeManagerOffset64(invalid64_neg).has_value(),
+	      "x86_64 decoder rejects negative displacement");
+	check(!CompatLive::decodeManagerOffset64(locator).has_value(),
+	      "x86_64 decoder rejects 6-byte i386 LEA");
+
 	if (argc == 2)
 	{
 		std::ifstream input(argv[1], std::ios::binary);

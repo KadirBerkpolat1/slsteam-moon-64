@@ -1324,7 +1324,19 @@ namespace Patterns
 		Pattern_t Offset_CompatManager
 		{
 			"CUser::m_CompatManager",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Calls 0x11b9a50, whose constructor writes vtable 0x30b22a8
+			// with RTTI type_info 0x30b1dd8 ("14CCompatManager") and whose slots [1]
+			// (0x11c34e0) and [4] (0x11a5ba0) match SpecifyCompatTool / GetCompatToolName.
+			// Proof 2: Inside CUser::CUser (0x1855ff0), 0x1856c2a loads
+			// `lea rax, [rbx + 0x4a58]`, passes rbx (CUser*) in rsi and rax in rdi,
+			// and calls 0x11b9a50. Masks member disp low 2 bytes, stack spill offset,
+			// and call rel32. Unique at 0x1856c2a.
+			"48 8D 83 ? ? 00 00 48 89 DE 48 89 C7 48 89 84 24 ? ? 00 00 E8 ? ? ? ? 66 0F 6F 1D",
+#else
 			"8D 8E ? ? ? ? 58 56 51 89 8D ? ? ? ? E8 ? ? ? ? 58 5A C7 86 ? ? ? ? FF FF FF FF",
+#endif
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CUser::Offset_CompatManager"

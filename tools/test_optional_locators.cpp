@@ -316,9 +316,20 @@ void checkX86_64(
 	expect(false,
 	       "CAPIJob::GetPlayerStats: not ported to x86_64 "
 	       "(degrades stats-job debug trace)");
-	expect(false,
-	       "CUser::m_CompatManager: not ported to x86_64 "
-	       "(degrades live compatibility-tool mapping for newly added titles)");
+	const std::size_t compat = resolveUnique(
+		client, "CUser::m_CompatManager",
+		"48 8D 83 ? ? 00 00 48 89 DE 48 89 C7 48 89 84 24 ? ? 00 00 E8 ? ? ? ? 66 0F 6F 1D",
+		source);
+	if (compat != std::string::npos)
+	{
+		const auto* bytes =
+			reinterpret_cast<const std::uint8_t*>(client.data()) + compat;
+		const auto offset = CompatLive::decodeManagerOffset64(
+			std::span<const std::uint8_t>(bytes, 7));
+		expect(offset.has_value() && *offset == 0x4A58,
+		       "CUser::m_CompatManager: the matched x86_64 LEA does not decode "
+		       "to 0x4A58");
+	}
 	(void)resolveUnique(
 		client, "CDepotDownloadMgr::BuildDepotDependency",
 		"41 57 41 56 41 55 41 54 41 89 F4 55 48 89 FD 53 48 81 EC ? ? 00 00 64 4C 8B 2C 25 28 00 00 00 4C 89 AC 24 ? ? 00 00 49 89 CD C6 47 1C 01 44 8B 72 10",
