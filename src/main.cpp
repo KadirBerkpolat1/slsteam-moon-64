@@ -71,7 +71,7 @@ static bool cleanEnvVar(const char* varName, const char* endsWith)
 		auto split = splits.at(i);
 		if (split.ends_with(endsWith))
 		{
-			g_pLog->debug("Removed %s from $%s\n", endsWith, varName);
+			if (g_pLog) g_pLog->debug("Removed %s from $%s\n", endsWith, varName);
 			continue;
 		}
 
@@ -171,6 +171,26 @@ static void setup()
 		return;
 	}
 
+#if defined(__x86_64__)
+	// The steamrt64 client is reached through an exec chain
+	//   steam -> srt-client-container -> srt-bwrap -> pv-adverb -> steam
+	// so $LD_AUDIT has to survive down to the inner "steam" and must not be
+	// stripped in this process (see the arch-split strip below). It is then
+	// also inherited by the steamwebhelper the client execs, whose Chromium
+	// sandbox must not carry an auditor; strip it here so the webhelper's own
+	// children start clean, then do nothing else. cleanEnvVar tolerates the
+	// not-yet-created log and unload() is a no-op before setup ran.
+	if (strcmp(proc.name, "steamwebhelper") == 0)
+	{
+		cleanEnvVar("LD_AUDIT", "SLSsteam.so");
+		cleanEnvVar("LD_AUDIT", "library-inject.so");
+		cleanEnvVar("LD_AUDIT", "libSLSsteam.so");
+		cleanEnvVar("LD_AUDIT", "libSLS-library-inject.so");
+		unload();
+		return;
+	}
+#endif
+
 	//Do not do anything in other processes
 	if (strcmp(proc.name, "steam") != 0)
 	{
@@ -247,14 +267,20 @@ static void setup()
 	g_clientPid = static_cast<long>(getpid());
 	g_clientStartTicks = CefPort::readProcStartTicks(g_clientPid);
 
-	// Strip ourselves from $LD_AUDIT so child processes Steam spawns
-	// (reaper, steamwebhelper, games) don't re-audit and re-run our
-	// hooks in foreign processes.  setup() also early-outs on non-steam
-	// processes, but cleaning the env is cheaper and avoids surprises.
+	// On i386 the client is a single process, so stripping ourselves from
+	// $LD_AUDIT here stops the reaper, steamwebhelper and games it spawns from
+	// re-auditing and re-running our hooks. On x86_64 the client runs as the
+	// exec chain noted above and the INNER process loads steamclient.so;
+	// stripping in this (outer) process removes the auditor before the inner
+	// client exists, so nothing is hooked and the whole injection silently
+	// no-ops. There we keep $LD_AUDIT through the chain and strip only inside
+	// steamwebhelper (handled above).
+#if !defined(__x86_64__)
 	cleanEnvVar("LD_AUDIT", "SLSsteam.so");
 	cleanEnvVar("LD_AUDIT", "library-inject.so");
 	cleanEnvVar("LD_AUDIT", "libSLSsteam.so");
 	cleanEnvVar("LD_AUDIT", "libSLS-library-inject.so");
+#endif
 
 
 	if(!g_config.init())
@@ -1056,6 +1082,32 @@ namespace
 	}
 }
 
+// True only in the real Steam client process. On x86_64 this auditor is
+// inherited down the whole steamrt64 exec chain and by the games the
+// container spawns, so the interposition below must act only here; everywhere
+// else it is a pure passthrough. /proc/self/comm is read once. On i386 the
+// auditor is stripped before any child inherits it, so this folds to a
+// compile-time true and the guard disappears.
+static bool auditInThisProcess()
+{
+#if defined(__x86_64__)
+	static const bool isClient = [] {
+		char buf[32] = {};
+		const int fd = open("/proc/self/comm", O_RDONLY | O_CLOEXEC);
+		if (fd < 0) return false;
+		const ssize_t n = read(fd, buf, sizeof(buf) - 1);
+		close(fd);
+		if (n <= 0) return false;
+		size_t len = static_cast<size_t>(n);
+		if (buf[len - 1] == '\n') --len;
+		return len == 5 && strncmp(buf, "steam", 5) == 0;
+	}();
+	return isClient;
+#else
+	return true;
+#endif
+}
+
 // Shared dispatch for the two rtld-audit entry points.  glibc calls
 // la_symbind32 for a 32-bit link map and la_symbind64 for a 64-bit one; the
 // body is identical apart from the symbol type, so it is written once here.
@@ -1067,6 +1119,12 @@ static uintptr_t auditSymbind(SymT* sym, uintptr_t* refcook,
 {
 	if (sym == nullptr)
 		return 0;
+
+	// Only the real client interposes exec/posix_spawn (the CEF port rewrite)
+	// and the stats-epoch symbol. In the webhelper, reaper or a game that
+	// inherited this auditor on x86_64, pass every binding through untouched.
+	if (!auditInThisProcess())
+		return sym->st_value;
 
 	const AuditBinding::Symbol symbol = AuditBinding::classify(symname);
 	if (symbol == AuditBinding::Symbol::None)
