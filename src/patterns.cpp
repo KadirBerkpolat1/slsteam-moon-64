@@ -1090,6 +1090,18 @@ namespace Patterns
 		Pattern_t RecvPkt
 		{
 			"CCMInterface::RecvPkt",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Only function (0x11a0440) referencing "CCMInterface::RecvPkt",
+			// "../clientdll/cminterface.cpp", and "CCMInterface - received heartbeat
+			// response, connection still good".
+			// Proof 2: Calls CProtoBufMsgBase::InitFromPacket (0x25eba90),
+			// CJobMgr::BRouteMsgToJob (0x2582660), CSteamEngine::PostCallback (0x1071880),
+			// and CNetMsg factory 0x25d67d0 (17 callers, matching i386 0x27e3370's 17).
+			// Masks frame size (0x518), GOT/global RIP-rel disp, and canary spill offset.
+			// Unique at 26/49 tokens.
+			"41 57 41 56 41 55 41 54 49 89 FC 55 53 48 89 F3 48 81 EC ? ? 00 00 48 8B 2D ? ? ? ? 64 48 8B 04 25 28 00 00 00 48 89 84 24 ? ? 00 00 31 C0",
+#else
 			// The stack frame grew on a later beta (sub esp,0x4cc -> larger), so
 			// the frame size and the frame-relative [ebp-disp] spill of the saved
 			// argument both drift together.  Both are local-frame layout, not
@@ -1097,6 +1109,7 @@ namespace Patterns
 			// displacement (their high bytes 00 00 / FF FF are kept); the gs
 			// cookie load and the rest keep exactly one .text match.
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC ? ? 00 00 8B 45 08 8B 7D 0C 89 85 ? ? FF FF 65 A1 14 00 00 00 89 45 E4 31 C0 8B 86",
+#endif
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CCMInterface::RecvPkt"

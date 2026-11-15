@@ -274,7 +274,7 @@ void checkI386(
 }
 
 void checkX86_64(
-	const std::string& /*client*/,
+	const std::string& client,
 	const std::string& ui,
 	const std::string& source)
 {
@@ -282,10 +282,10 @@ void checkX86_64(
 	       "CUser::ProcessPendingLicenseUpdates: not ported to x86_64 "
 	       "(degrades runtime license refresh in PackagePatch, so adding a "
 	       "game needs a Steam restart)");
-	expect(false,
-	       "CCMInterface::RecvPkt: not ported to x86_64 "
-	       "(degrades Family Share message filtering)");
-
+	(void)resolveUnique(
+		client, "CCMInterface::RecvPkt",
+		"41 57 41 56 41 55 41 54 49 89 FC 55 53 48 89 F3 48 81 EC ? ? 00 00 48 8B 2D ? ? ? ? 64 48 8B 04 25 28 00 00 00 48 89 84 24 ? ? 00 00 31 C0",
+		source);
 	const std::size_t ownership = resolveUnique(
 		ui, "CSteamApp::OwnershipFlagsReference",
 		"41 8B ? 1C 48 8B BD ? ? ? ? 48 8D 35 ? ? ? ? E8 ? ? ? ?",
