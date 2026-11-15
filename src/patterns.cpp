@@ -1584,24 +1584,19 @@ namespace Patterns
 		{
 			"IClientUserStats::RunIPCFrame",
 #if defined(__x86_64__)
-			// Identified by dispatch-root count, not by the drifting root id.  The
-			// number of distinct `cmp eax,<hash>` roots in a dispatcher equals the
-			// method count of its RTTI map vtable: 258/259, 246/246, 118/118,
-			// 115/115, 111/111, 93/93, 16/16 all agree, and the 55-root
-			// dispatcher is the only one with no other candidate.
+			// The dispatch tail, in the same shape every other RunIPCFrame arm
+			// uses, so autoResolveIpcFrameRoots keeps working: the last four
+			// tokens ARE the volatile root id and nothing else.  (An entry-based
+			// signature resolves statically but fails in the live client -- the
+			// resolver rewrites the trailing four tokens, which in an entry
+			// signature are the frame size, corrupting it.)
 			//
-			// The embedded i386 seed 0x876D658F landed 5,932,498 away from the
-			// nearest root here, so nearest-root used to resolve this to a
-			// neighbour interface and log a false `auto-resolved`.  The seed now
-			// sits 18 from this interface's own nearest root (0x876D657D), well
-			// inside kMaxRootDrift, so auto-resolve is correct again.
-			//
-			// Direct entry: this is a real function entry (push rbp; mov rbp,rsp),
-			// not a call site, so PrologueUpwards has nothing to walk back to.
-			// The 24-byte prefix is unique (20 matches three dispatchers, 24 one).
-			"55 48 89 E5 41 57 41 56 41 55 49 89 FD 41 54 53 48 89 F3 "
-			"48 81 EC D8 00 00 00",
-			SigFollowMode::None
+			// x86-64 tail: E8 rel32 | 8B 85 disp32 | 3D imm32, root at +12.
+			// Identified by dispatch-root count: 55 distinct roots, and
+			// IClientUserStatsMap is the only RTTI map with 55 slots.
+			"E8 ? ? ? ? 8B 85 ? ? ? ? 3D 6B D6 E5 85",
+			SigFollowMode::PrologueUpwards,
+			kIpcPrologue
 #else
 			"E8 ? ? ? ? 8B 85 ? ? ? ? 83 C4 10 3D 8F 65 6D 87",
 			SigFollowMode::PrologueUpwards,
@@ -1764,17 +1759,17 @@ namespace Patterns
 		{
 			"IClientUtils::RunIPCFrame",
 #if defined(__x86_64__)
-			// Identified by dispatch-root count: 118 distinct `cmp eax,<hash>`
-			// roots, and IClientUtilsMap is the only RTTI map with 118 slots.
-			// The i386 arm below has no x86-64 analogue at all -- it is a mid-body
-			// tail (`sub esp,8; mov ebx,esi; push eax; push edi; call`), whereas
-			// the x86-64 function opens with a plain frame.  So this is a direct
-			// entry match, not a prologue walk.
-			// 24 tokens are required: 20 still matches IClientFriends (246) and
-			// IClientAppManager (115) because those save the same registers.
-			"55 48 89 E5 41 57 41 56 41 55 41 54 49 89 FC 53 48 89 F3 "
-			"48 81 EC 18 01 00 00",
-			SigFollowMode::None
+			// Dispatch tail, same contract as the UserStats arm above: the last
+			// four tokens are the volatile root and nothing else, so
+			// autoResolveIpcFrameRoots can rewrite them safely.
+			//
+			// Identified by dispatch-root count: 118 distinct roots, and
+			// IClientUtilsMap is the only RTTI map with 118 slots.  The i386 arm
+			// has no x86-64 analogue (it anchors mid-body) but the tail shape is
+			// the same as every other dispatcher here.
+			"E8 ? ? ? ? 8B 85 ? ? ? ? 3D 5E 86 40 82",
+			SigFollowMode::PrologueUpwards,
+			kIpcPrologue
 #else
 			"83 EC 08 89 F3 50 57 E8 ? ? ? ? 58 FF B5 ? ? ? ? E8 ? ? ? ? 58 8D 45",
 			SigFollowMode::PrologueUpwards,
