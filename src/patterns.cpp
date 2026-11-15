@@ -1970,7 +1970,20 @@ namespace Patterns
 		Pattern_t ProcessDepotManifest
 		{
 			"CDepotDownloadMgr::ProcessDepotManifest",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x1059d00).
+			// Proof 1: Only function referencing "%s/depotcache/%d_%llu.manifest"
+			// (at 0x1059ef3) and calling CDepotDownloadMgr::BYldRequestDepotManifest
+			// (0x1398b50), matching i386 0x117b010.
+			// Proof 2: Exact 4 external callers (0x105a1e0, 0x10e3d30, 0x11d41c0,
+			// 0x11d45a0), matching i386's 4 external callers (0x117b550, 0x12277e0,
+			// 0x132c080, 0x132e480), and inserts/looks up manifestId (r8) in
+			// [rdi+0x48] RB-tree ([rdi+0x60] root, [rdi+0x78] base).
+			// Unique at 20/57 tokens.
+			"41 57 41 56 41 89 CE 41 55 41 54 49 89 FC 55 53 4C 89 C3 48 83 EC 38 48 89 34 24 89 54 24 0C 4C 89 4C 24 10 64 48 8B 04 25 28 00 00 00 48 89 44 24 28 48 63 47 60 83 F8 FF",
+#else
 			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 4C 8B 55 1C 89 45 C0 8B 45 18 89 55 CC 89 45 C8",
+#endif
 			SigFollowMode::None
 		};
 

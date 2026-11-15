@@ -287,6 +287,11 @@ void checkI386(
 		"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 2C 8B 74 24 40 8B 44 24 48 "
 		"8B BE ? ? 00 00 88 44 24 1C 8D 86 ? ? 00 00 89 44 24 0C 85 FF 0F 84 ? ? ? ?",
 		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::ProcessDepotManifest",
+		"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 4C 8B 55 1C 89 45 C0 "
+		"8B 45 18 89 55 CC 89 45 C8",
+		source);
 }
 
 void checkX86_64(
@@ -368,6 +373,10 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "CUser::MarkLicenseAsChanged",
 		"41 57 48 8D 87 ? 23 00 00 41 89 F7 41 56 41 55 41 54 55 53 48 83 EC 28 88 54 24 ? 8B 97 ? 23 00 00 89 74 24 ? 48 89 44 24 ? 85 D2 0F 84 ? ? ? ?",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::ProcessDepotManifest",
+		"41 57 41 56 41 89 CE 41 55 41 54 49 89 FC 55 53 4C 89 C3 48 83 EC 38 48 89 34 24 89 54 24 0C 4C 89 4C 24 10 64 48 8B 04 25 28 00 00 00 48 89 44 24 28 48 63 47 60 83 F8 FF",
 		source);
 }
 } // namespace
