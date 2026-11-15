@@ -10,6 +10,6 @@
 # Update these numbers whenever an x86_64 signature lands.
 arch=x86_64
 required=37
-resolved=11
-pending=26
-runipcframe_tail=partial
+resolved=16
+pending=22
+runipcframe_tail=complete

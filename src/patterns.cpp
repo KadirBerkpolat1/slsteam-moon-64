@@ -1087,8 +1087,20 @@ namespace Patterns
 		Pattern_t Init
 		{
 			"CSteamEngine::Init",
+#if defined(__x86_64__)
+			// Entry, not a call site: on x86-64 this is reached directly, so
+			// Relative has nothing to follow.  The window stops before the first
+			// `mov eax,[rdi+disp32]`, whose displacement is the build-specific
+			// m_bInitialized offset (0x1d2c here).  What is kept is stack-frame
+			// setup plus the %fs:0x28 canary spill: without the canary pair the
+			// prefix matches twice, with it exactly once.
+			"41 54 55 53 48 81 EC 10 01 00 00 64 48 8B 04 25 28 00 00 00 "
+			"48 89 84 24 08 01 00 00 8B 87 2C 1D 00 00",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 83 C4 10 8D 83 ? ? ? ? 83 EC 0C 89 AB",
 			SigFollowMode::Relative
+#endif
 		};
 		Pattern_t SetAppIdForCurrentPipe
 		{
@@ -1511,9 +1523,30 @@ namespace Patterns
 		Pattern_t RunIPCFrame
 		{
 			"IClientUserStats::RunIPCFrame",
+#if defined(__x86_64__)
+			// Identified by dispatch-root count, not by the drifting root id.  The
+			// number of distinct `cmp eax,<hash>` roots in a dispatcher equals the
+			// method count of its RTTI map vtable: 258/259, 246/246, 118/118,
+			// 115/115, 111/111, 93/93, 16/16 all agree, and the 55-root
+			// dispatcher is the only one with no other candidate.
+			//
+			// The embedded i386 seed 0x876D658F landed 5,932,498 away from the
+			// nearest root here, so nearest-root used to resolve this to a
+			// neighbour interface and log a false `auto-resolved`.  The seed now
+			// sits 18 from this interface's own nearest root (0x876D657D), well
+			// inside kMaxRootDrift, so auto-resolve is correct again.
+			//
+			// Direct entry: this is a real function entry (push rbp; mov rbp,rsp),
+			// not a call site, so PrologueUpwards has nothing to walk back to.
+			// The 24-byte prefix is unique (20 matches three dispatchers, 24 one).
+			"55 48 89 E5 41 57 41 56 41 55 49 89 FD 41 54 53 48 89 F3 "
+			"48 81 EC D8 00 00 00",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 8B 85 ? ? ? ? 83 C4 10 3D 8F 65 6D 87",
 			SigFollowMode::PrologueUpwards,
 			kIpcPrologue
+#endif
 		};
 	}
 
@@ -1670,9 +1703,23 @@ namespace Patterns
 		Pattern_t RunIPCFrame
 		{
 			"IClientUtils::RunIPCFrame",
+#if defined(__x86_64__)
+			// Identified by dispatch-root count: 118 distinct `cmp eax,<hash>`
+			// roots, and IClientUtilsMap is the only RTTI map with 118 slots.
+			// The i386 arm below has no x86-64 analogue at all -- it is a mid-body
+			// tail (`sub esp,8; mov ebx,esi; push eax; push edi; call`), whereas
+			// the x86-64 function opens with a plain frame.  So this is a direct
+			// entry match, not a prologue walk.
+			// 24 tokens are required: 20 still matches IClientFriends (246) and
+			// IClientAppManager (115) because those save the same registers.
+			"55 48 89 E5 41 57 41 56 41 55 41 54 49 89 FC 53 48 89 F3 "
+			"48 81 EC 18 01 00 00",
+			SigFollowMode::None
+#else
 			"83 EC 08 89 F3 50 57 E8 ? ? ? ? 58 FF B5 ? ? ? ? E8 ? ? ? ? 58 8D 45",
 			SigFollowMode::PrologueUpwards,
 			kIpcPrologue
+#endif
 		};
 		Pattern_t Offset_GetPipeIndex
 		{
@@ -1719,6 +1766,16 @@ namespace Patterns
 		Pattern_t RecvPkt
 		{
 			"CRemoteClientManager::RecvPkt",
+#if defined(__x86_64__)
+			// Entry.  r12/rbp/rbx saved, rbp := this (rdi), a 0x10 frame, then the
+			// cached-global load and the %fs:0x28 canary pair.  The rip-relative
+			// displacement is a separate translation unit's static, so it is
+			// wildcarded; the canary pair keeps the match unique (the prefix alone
+			// matches twice).
+			"41 54 55 48 89 FD 53 48 83 EC 10 48 8B 05 ? ? ? ? "
+			"64 4C 8B 24 25 28 00 00 00 4C 89 64 24 08 49 89 F4 8B 10",
+			SigFollowMode::None
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 83 EC 1C "
 			// [esi+disp32]: PIC-relative global slot whose displacement drifts
 			// between Steam client builds (0x8B0 -> 0x8B4 on 1781041600; the
@@ -1730,6 +1787,7 @@ namespace Patterns
 			"C7 45 E4 00 00 00 00 83 EC 08 89 F3 6A 01 FF 75 0C "
 			"E8 ? ? ? ? 89 C7 83 C4 10 85 C0 0F 84 ? ? ? ? 83 EC 0C 50",
 			SigFollowMode::None
+#endif
 		};
 	}
 
