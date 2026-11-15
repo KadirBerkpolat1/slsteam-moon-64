@@ -418,28 +418,44 @@ in the installed libraries. The five SteamUI locators
 `BuildCompleteAppOverviewChange`, `OwnershipFlagsReference`) resolve on
 `steamui.so` build `57d58821`, with ownership offset 0x1c (see "libraryremoval").
 
-Harness run on `main` (`bin/SLSsteam.so` BuildID `dd28a347`): 0 `Required
-pattern` misses, `LibraryRemoval: SteamUI queue ready (ownership offset=0x1c)`,
-`Loaded successfully`, and **12 optional patterns that do not resolve yet**.
-Each one logs "dependent feature disabled". That names the hook, not a whole
-feature area: the everyday paths below run on resolved hooks.
+Harness run on `bcec565` (`bin/SLSsteam.so` BuildID `9213390e`, the source
+merged to `main` in `1f5bf16`): 0 `Required pattern` misses,
+`LibraryRemoval: SteamUI queue ready (ownership offset=0x1c)`,
+`ReconcilePin: hooked EvaluateConfigChanges ... ctx_depots=+0xc0`,
+`Loaded successfully`, and **1 optional pattern that does not resolve**:
+`CDepotDownloadMgr::OnChunkUnpacked[regparm3]`. The same harness on `9691886`,
+before the second batch, logged 12.
 
-### What the 12 unresolved optional patterns actually cost
+### Optional locators ported in the second batch
 
-Read from the source on `9691886`, not observed in a running client.
+Each was re-derived on `steamclient.so` build `a57ea463` with two independent
+proofs, recorded next to its signature in `src/patterns.cpp` and in its commit
+message. `make ARCH=x86_64 test-optional-locators` checks that they resolve
+uniquely in the installed libraries.
 
-| pattern | real effect on x86_64 | severity for a normal user |
-|---|---|---|
-| `CUser::MarkLicenseAsChanged` | Restart-less licence refresh is deferred. `LicenseRefreshPolicy::decide()` returns `Defer` unless mark, process and the unresolved-state guard are all available (`src/feats/license_refresh_policy.hpp:23-35`, called at `src/feats/packagepatch.cpp:533-558`). Adding or removing a game while Steam runs needs a Steam restart. | Medium: the main gap |
-| `CUser::NotifyLicensesUpdated` | The deferred-refresh fallback (`src/feats/packagepatch.cpp:855`) and the cold-cache reconcile cannot broadcast `LicensesUpdated_t` (`packagepatch.cpp:168-169`). On a cold cache the client can stay at "Loading user data" (`packagepatch.cpp:119-127`). Warm-cache boots are unaffected. | Medium, cold cache only |
-| `CAppInfoCache::GetOrAddAppData`, `SkipFlagReference`, `ShaReference` | The unresolved-app skip guard is not installed (`hkGetOrAddAppData`, `src/feats/appinfostate.cpp:442-472`). Boot-time appinfo splices still run (`src/main.cpp:391`, `:413`), and the authority set that PICS filtering reads does not depend on the hook (`appinfostate.cpp:760-784`, read at `src/feats/pics.cpp:798`). | Low |
-| `CAppInfoCache::ThreadedReadFromDisk` | Live appinfo reloads do nothing (`AppInfoState::reloadFromDisk`, `appinfostate.cpp:786-809`), so hot-added games and live DLC metadata wait for the next Steam start. | Low: same restart as above |
-| `CDepotDownloadMgr::ProcessDepotManifest`, `PrepareDepotDownload` | The offline / provider-down fallback that points a missing public manifest GID at a locally held one is off (`redirectGid`, `src/feats/manifestbind.cpp:477-655`, called only from these two detours at `:657-673`). Online installs still stage manifests through `BuildDepotDependency` (`manifestbind.cpp:685-857`), `BYldRequestDepotManifest` (`src/feats/manifestcode.cpp:759-848`) and PICS. | Low: offline only |
-| `CDepotDownloadMgr::EvaluateConfigChanges` | ReconcilePin is off (`src/feats/reconcilepin.cpp:370-373`). The post-commit target config is not rewritten to manifest pins and managed size-zero depots are not pruned (`src/feats/reconcilepin.hpp:13-21`), so the downgrade loop it fixes can return. | Low–medium: pin and downgrade users |
-| `ParentalSettingsReceived` | `Parental::setup()` returns before it reaches the signature check (`src/feats/parental.cpp:129-137`). Local parental unlock is inactive. | Low: Family View users only |
-| `CDepotDownloadMgr::OnChunkUnpacked[cdecl]`, `[regparm3]` | Two i386 calling-convention variants with i386-only signatures (`src/patterns.cpp:1985-2007`). Only live auto-quarantine of undecryptable DLC depots is off. | Low |
+| pattern | what it enables on x86_64 |
+|---|---|
+| `CUser::MarkLicenseAsChanged` | the mark capability of `LicenseRefreshPolicy::decide()` (`src/feats/license_refresh_policy.hpp`); with `ProcessPendingLicenseUpdates` from the first batch and the `GetOrAddAppData` guard below, every input it checks before returning `Process` instead of `Defer` is now available, i.e. restart-less licence refresh |
+| `CUser::NotifyLicensesUpdated` | the `LicensesUpdated_t` broadcast used by the deferred-refresh fallback and the cold-cache reconcile (`src/feats/packagepatch.cpp`) |
+| `CAppInfoCache::GetOrAddAppData`, `SkipFlagReference`, `ShaReference` | the unresolved-app skip guard (`hkGetOrAddAppData`, `src/feats/appinfostate.cpp`); the x86_64 field offsets come from `AppDataLayout::derive64` (`src/feats/appdata_layout.hpp`) |
+| `CAppInfoCache::ThreadedReadFromDisk` | live appinfo reloads (`AppInfoState::reloadFromDisk`) |
+| `CDepotDownloadMgr::ProcessDepotManifest`, `PrepareDepotDownload` | the offline / provider-down manifest GID fallback (`redirectGid`, `src/feats/manifestbind.cpp`) |
+| `CDepotDownloadMgr::EvaluateConfigChanges` | ReconcilePin (`src/feats/reconcilepin.cpp`); context depot vector at `+0xc0` (i386 `+0x90`) |
+| `ParentalSettingsReceived` | local parental unlock (`Parental::setup()`, `src/feats/parental.cpp`) |
+| `CDepotDownloadMgr::OnChunkUnpacked[cdecl]` | live auto-quarantine of undecryptable DLC depots (`src/feats/depotquarantine.cpp`) |
 
-Ownership and DLC at boot are not on that list. `PackagePatch::setup()` needs
+`CDepotDownloadMgr::OnChunkUnpacked[regparm3]` stays unresolved by design.
+x86_64 SysV has no cdecl/regparm(3) split, so its x86_64 signature is empty;
+the `[cdecl]` locator hooks the one SysV implementation, and
+`DepotQuarantine::setup()` is active when either variant installs. The
+"dependent feature disabled" line it logs costs nothing on x86_64.
+
+What the harness does not show: none of these paths ran there. The inert
+process has no logged-in user, so `PackagePatch` logs `runtime refresh
+generation 1 deferred (package 0 is not ready)` and restart-less licence
+refresh is still unobserved.
+
+Ownership and DLC at boot never depended on the optional locators. `PackagePatch::setup()` needs
 only `LoadPackage` and `CUtlMemory::Grow` (`src/feats/packagepatch.cpp:910-950`),
 both required and resolved, and logs "boot path remains available" when the
 runtime refresh capability is incomplete. `CUser::CheckAppOwnership` and
@@ -480,10 +496,11 @@ Run on Linux 7.3.4, gcc 16.2.1, glibc 2.44, Steam client builds 2026-10-22.
 | arch stamp | `make ARCH=x86_64 && make` | relinks both artifacts |
 
 **Not verified:** the client has never been launched against this build. No
-P2P session, no FakeAppIds path, nothing runtime. In the LD_AUDIT harness the
-required patterns are complete (0 misses) and hook setup completes (`Loaded
-successfully`); 12 optional patterns still do not resolve (see "What the 12
-unresolved optional patterns actually cost").
+P2P session, no FakeAppIds path, no licence refresh, nothing runtime. In the
+LD_AUDIT harness the required patterns are complete (0 misses), hook setup
+completes (`Loaded successfully`), and the only optional miss is the
+i386-only `OnChunkUnpacked[regparm3]` (see "Optional locators ported in the
+second batch").
 
 ## Upstream
 
