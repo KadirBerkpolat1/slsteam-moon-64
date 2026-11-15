@@ -1134,10 +1134,28 @@ namespace Patterns
 		Pattern_t Offset_ClientUtils
 		{
 			"CSteamEngine::m_ClientUtils",
+#if defined(__x86_64__)
+			// The constructor publishes the primary vptr and then the embedded
+			// sub-object table: `mov [this],vptr; add rax,<vtable delta>;
+			// mov [this+disp32],rax`.  That store is where m_ClientUtils lives.
+			//
+			// The locator must START at the store: the decoder reads the disp32
+			// at +3, after `48 89 83`, so anchoring one instruction earlier (on
+			// the `lea vptr`) would decode that instruction's RIP displacement
+			// instead and produce a nonsense member offset.  The tail is what
+			// makes the store itself unique: the same `mov [this+d],rax` shape
+			// appears in thousands of constructors.
+			"48 89 83 ? ? ? ? 48 8D 83 ? ? ? ? 48 89 C7 48 89 84 24 ? ? ? ? "
+			"E8 ? ? ? ? 48 8D 83 ? ? ? ? C7 83",
+			SigFollowMode::None,
+			nullptr,
+			"Patterns::CSteamEngine::Offset_ClientUtils"
+#else
 			"89 86 ? ? ? ? 8D 86 ? ? ? ? 89 44 24 ? 50 E8 ? ? ? ? 83 C4",
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CSteamEngine::Offset_ClientUtils"
+#endif
 		};
 		Pattern_t Offset_User
 		{
@@ -1724,10 +1742,30 @@ namespace Patterns
 		Pattern_t Offset_GetPipeIndex
 		{
 			"IClientUtils::m_PipeIndex",
+#if defined(__x86_64__)
+			// The pipe-index accessor is one of three sibling CSteamEngine helpers
+			// that are byte-identical in size (0x55) and shape: index an intrusive
+			// red-black tree on a container offset, compare against the pipe index,
+			// and return the matched node's field.  They differ only in the
+			// container offsets.
+			//
+			// m_PipeIndex is the only one whose index member sits at a NEGATIVE
+			// displacement (-0x1028 here; -0xc8c on i386) because it lives before
+			// the sub-object the caller holds.  That sign is the discriminator:
+			// keying on the `FF FF` high half of the disp32 selects this
+			// instruction alone, where matching the surrounding shape selects all
+			// three.  The low two disp bytes stay wildcarded so a class-layout
+			// shift does not break it.
+			"8B B7 ? ? FF FF 83 F8 FF 74 ? 48 8B 8F",
+			SigFollowMode::None,
+			nullptr,
+			"Patterns::IClientUtils::Offset_GetPipeIndex"
+#else
 			"8B 91 ? ? ? ? 83 F8 FF 74 ? 8B 89 ? ? ? ? EB ? ? ? ? 8B 00 83 F8 FF 74 ? 8D 04 ? 8D 04 ? 3B 50",
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::IClientUtils::Offset_GetPipeIndex"
+#endif
 		};
 	}
 
