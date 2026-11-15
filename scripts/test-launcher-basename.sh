@@ -160,12 +160,16 @@ FN="$(awk '
 W_HOME="$TMP/wrapper-home"
 export HOME="$W_HOME"
 export XDG_STATE_HOME="$W_HOME/.local/state"
-# systemctl reaches the real user manager whatever HOME is set to, so the
-# wrapper's guardian kick must hit a stub, never the live service.
-mkdir -p "$W_HOME/fake-bin"
-printf '#!/bin/sh\nexit 1\n' > "$W_HOME/fake-bin/systemctl"
+# systemctl reaches the real user manager whatever HOME is set to. Every call
+# the wrapper or the guardian library makes must hit this logging stub, and the
+# user bus points into the sandbox so not even a real systemctl finds a manager.
+mkdir -p "$W_HOME/fake-bin" "$W_HOME/run"
+chmod 700 "$W_HOME/run"
+SYSTEMCTL_LOG="$W_HOME/systemctl.log"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nexit 1\n' "$SYSTEMCTL_LOG" > "$W_HOME/fake-bin/systemctl"
 chmod +x "$W_HOME/fake-bin/systemctl"
-export PATH="$W_HOME/fake-bin:$PATH"
+export PATH="$W_HOME/fake-bin:$PATH" DGU_SYSTEMCTL="$W_HOME/fake-bin/systemctl"
+export XDG_RUNTIME_DIR="$W_HOME/run" DBUS_SESSION_BUS_ADDRESS="unix:path=$W_HOME/run/bus"
 W_SLSDIR="$W_HOME/.local/share/SLSsteam"
 W_STEAM_ROOT="$W_HOME/steam-root"
 W_BACKUP="$W_SLSDIR/system-launcher-backup/usr/bin/steam.orig"
@@ -206,6 +210,8 @@ check "wrapper runs a name-safe launcher directly" "VALVE-LAUNCHER -foo" \
 # is an extra path, never a replacement (uninstall restores from *.orig).
 check "captured original is still present after a normalised launch" "yes" \
 	"$([ -f "$W_BACKUP" ] && echo yes || echo no)"
+check "every systemctl call the wrapper made hit the sandbox stub, none a start" \
+	"--user --quiet is-enabled slsteam-desktop-guardian.path" "$(sort -u "$SYSTEMCTL_LOG" 2>/dev/null)"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

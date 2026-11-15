@@ -45,12 +45,16 @@ FN="$(awk '
 HOME_DIR="$(mktemp -d)"
 export HOME="$HOME_DIR"
 export XDG_STATE_HOME="$HOME_DIR/.local/state"
-# systemctl reaches the real user manager whatever HOME is set to, so the
-# wrapper's guardian kick must hit a stub, never the live service.
-mkdir -p "$HOME_DIR/fake-bin"
-printf '#!/bin/sh\nexit 1\n' > "$HOME_DIR/fake-bin/systemctl"
+# systemctl reaches the real user manager whatever HOME is set to. Every call
+# the wrapper or the guardian library makes must hit this logging stub, and the
+# user bus points into the sandbox so not even a real systemctl finds a manager.
+mkdir -p "$HOME_DIR/fake-bin" "$HOME_DIR/run"
+chmod 700 "$HOME_DIR/run"
+SYSTEMCTL_LOG="$HOME_DIR/systemctl.log"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nexit 1\n' "$SYSTEMCTL_LOG" > "$HOME_DIR/fake-bin/systemctl"
 chmod +x "$HOME_DIR/fake-bin/systemctl"
-export PATH="$HOME_DIR/fake-bin:$PATH"
+export PATH="$HOME_DIR/fake-bin:$PATH" DGU_SYSTEMCTL="$HOME_DIR/fake-bin/systemctl"
+export XDG_RUNTIME_DIR="$HOME_DIR/run" DBUS_SESSION_BUS_ADDRESS="unix:path=$HOME_DIR/run/bus"
 SLSDIR="$HOME_DIR/.local/share/SLSsteam"
 GUARD_DIR="$XDG_STATE_HOME/slsteam-moon"
 
@@ -454,6 +458,13 @@ pattern_elapsed_ms=$(( ($(date +%s%N) - pattern_started) / 1000000 ))
   || bad "cache miss wait was ${pattern_elapsed_ms}ms"
 unset SLSM_TEST_PATTERN_CACHE SLSM_TEST_PATTERN_DELAY PATTERN_ORDER_LOG
 rm -f "$PATTERN_HELPER"
+
+SYSTEMCTL_CALLS="$(sort -u "$SYSTEMCTL_LOG" 2>/dev/null)"
+if [ "$SYSTEMCTL_CALLS" = "--user --quiet is-enabled slsteam-desktop-guardian.path" ]; then
+	ok "every systemctl call the wrapper made hit the sandbox stub, none a start"
+else
+	bad "wrapper systemctl calls: ${SYSTEMCTL_CALLS:-none reached the stub}"
+fi
 
 if [ "${SLSM_KEEP_TEST_TMP:-0}" = 1 ]; then
 	echo "test artifacts kept at $HOME_DIR"
