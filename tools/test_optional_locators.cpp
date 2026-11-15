@@ -282,6 +282,11 @@ void checkI386(
 		"8B ? ? 1B 00 00 89 9D 54 FE FF FF 85 ? 0F 8E ? ? ? ? 8D 83 ? ? ? ? "
 		"83 EC 08 6A 7D 50",
 		source);
+	(void)resolveUnique(
+		client, "CUser::MarkLicenseAsChanged",
+		"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 2C 8B 74 24 40 8B 44 24 48 "
+		"8B BE ? ? 00 00 88 44 24 1C 8D 86 ? ? 00 00 89 44 24 0C 85 FF 0F 84 ? ? ? ?",
+		source);
 }
 
 void checkX86_64(
@@ -359,6 +364,10 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "CUser::NotifyLicensesUpdated",
 		"41 57 41 56 41 55 41 54 55 53 48 81 EC ? ? 00 00 44 8B 8F ? 23 00 00 48 89 7C 24 ? 64 48 8B 04 25 28 00 00 00 48 89 84 24 ? ? 00 00 31 C0 45 85 C9 0F 8E ? ? ? ? 48 8D 3D ? ? ? ? BE 7D 00 00 00 E8 ? ? ? ? 84 C0 0F 85 ? ? ? ? 48 8B 5C 24 ? 45 31 C0 B9 01 00 00 00 BE 7D 00 00 00",
+		source);
+	(void)resolveUnique(
+		client, "CUser::MarkLicenseAsChanged",
+		"41 57 48 8D 87 ? 23 00 00 41 89 F7 41 56 41 55 41 54 55 53 48 83 EC 28 88 54 24 ? 8B 97 ? 23 00 00 89 74 24 ? 48 89 44 24 ? 85 D2 0F 84 ? ? ? ?",
 		source);
 }
 } // namespace

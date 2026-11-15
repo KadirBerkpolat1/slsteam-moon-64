@@ -1468,7 +1468,20 @@ namespace Patterns
 		Pattern_t MarkLicenseAsChanged
 		{
 			"CUser::MarkLicenseAsChanged",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x1849fc0).
+			// Proof 1: Hashes packageId (esi) with Murmur3 constants 0x85ebca6b and
+			// 0xc2b2ae35 into CUser::m_mapChangedLicenses (+0x2378, count +0x23bc,
+			// elements +0x23a8), the exact map read by CUser::NotifyLicensesUpdated
+			// (0x184a260), then looks up package in 0x1460 and marks apps via 0x102a9a0.
+			// Proof 2: Exact 3 external callers (0x1037240, 0x184a980, 0x18614e0),
+			// matching i386 0x1a0cd00's 3 external callers (0x115c870, 0x1a13a10,
+			// 0x1a14090), and takes (this, packageId, bool) in (rdi, esi, dl).
+			// Unique at 10/51 tokens.
+			"41 57 48 8D 87 ? 23 00 00 41 89 F7 41 56 41 55 41 54 55 53 48 83 EC 28 88 54 24 ? 8B 97 ? 23 00 00 89 74 24 ? 48 89 44 24 ? 85 D2 0F 84 ? ? ? ?",
+#else
 			"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 2C 8B 74 24 40 8B 44 24 48 8B BE ? ? 00 00 88 44 24 1C 8D 86 ? ? 00 00 89 44 24 0C 85 FF 0F 84 ? ? ? ?",
+#endif
 			SigFollowMode::None
 		};
 		// Current Linux i386 entry at RVA 0x0186C800.  Its cdecl receiver is
