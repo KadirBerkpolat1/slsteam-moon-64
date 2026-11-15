@@ -9,7 +9,9 @@ For building, see [`docs/BUILDING.md`](docs/BUILDING.md).
 
 This branch also builds for the 64-bit `steamrt64` client — see
 [`PORTING.md`](PORTING.md) for the arch matrix, the measured struct layouts,
-and the pattern-table work that is still outstanding.
+and the pattern table: all 38 required patterns resolve, and 12 optional
+hooks do not resolve yet. It has been checked in an LD_AUDIT harness against
+the real client libraries, not yet inside a running Steam client.
 
 ## Credits
 

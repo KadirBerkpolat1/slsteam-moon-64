@@ -43,20 +43,31 @@ be needed if AceSLS's `src/lua.cpp` / `LuaBridge` were ported in.
 
 ## What changed for 64-bit
 
-Ten files. Each one is a place where 32-bit and 64-bit genuinely differ, not a
-stylistic change.
+Twenty files. Each one is a place where 32-bit and 64-bit genuinely differ, not
+a stylistic change.
 
 | file | change |
 |---|---|
 | `src/utils.hpp` | added `<cstdint>` — `uint8_t`/`uint32_t` were undeclared. **This also breaks the pristine upstream tree on gcc 16**, so it is a straight bug fix, not a port artifact. |
 | `src/main.cpp` | `auditSymbind<SymT>` template behind `la_symbind32` and `la_symbind64` |
 | `src/sdk/CSteamEngine.hpp` | `CServerPipe` 64-bit layout + `plausibleServerPipe()` gate |
+| `src/sdk/CSteamEngine.cpp` | `getLocalClientCompat()` reads the 7-byte REX.W `lea` on x86_64 and decodes `CUser::m_CompatManager` at 0x4A58 |
 | `src/sdk/CPackageInfo.hpp` | `CUtlMemory` / `CUtlVector` / `PackageInfo` offsets by pointer width |
+| `src/sdk/CNetPacket.hpp` | x86_64 field layout (0x28 overlay) and an x86_64-only shift probe — see "Struct layouts" |
 | `src/feats/apps.cpp` | `size_t` → `uint32_t` to match the header and the hooked signature |
-| `src/feats/libraryremoval.cpp` | explicitly unsupported on x86_64 (x86-32 instruction decoder) |
-| `Makefile` | `ARCH` matrix, `obj/$(ARCH)`, arch stamp |
-| `scripts/build.sh`, `scripts/_build-host.sh` | `--arch` and arch-aware dev-lib sniffing |
+| `src/feats/libraryremoval.cpp` | x86_64 path: `deriveOwnershipOffset64()`, no i386 PIC-thunk repair |
+| `src/feats/libraryremoval_policy.hpp` | `deriveOwnershipOffset64()`, the REX-aware ownership-read decoder — see "libraryremoval" |
+| `src/feats/compatlive.hpp` | `CompatLive::decodeManagerOffset64()` for the 7-byte `lea` with a disp32 |
+| `src/feats/manifestbind.cpp` | `CUtlVector<DepotEntry>` capacity/count offsets 0x08/0x10 on x86_64 |
+| `src/memhlp.cpp`, `src/memhlp.hpp` | `fixPICThunkCall()` reads the `E8` rel32 operand as a signed 32-bit value instead of a pointer-width one, and refuses non-executable addresses |
+| `src/patterns.cpp` | x86_64 signature arms for the required patterns, the six formerly-optional locators and the five SteamUI locators |
 | `src/hooks.cpp` | uses `plausibleServerPipe()` before keying the process map |
+| `Makefile` | `ARCH` matrix, `obj/$(ARCH)`, arch stamp; x86_64 test defaults point at `steamrt64` |
+| `scripts/build.sh`, `scripts/_build-host.sh` | `--arch` and arch-aware dev-lib sniffing |
+| `scripts/_build-portable.sh`, `scripts/build-portable-container.sh` | x86_64 `--portable` builds in AlmaLinux 8.10; i386 keeps the Ubuntu 22.04 `scripts/Dockerfile` |
+
+The matching `tools/test_*.cpp` files carry x86_64 arms or arch-gated layout
+assertions for the same code.
 
 ### `la_symbind64`
 
@@ -271,32 +282,54 @@ Notably it does **not** link `libcurl` or `libdbus`:
   fork does not, because the DBus-using feature set was never in it. That
   removes an install step the release binary required.
 
-## Pattern table — the remaining work
+## Pattern table — current position
 
-**This is why the port is not usable yet.**
+Required patterns are complete on x86_64. `res/pattern-status.txt`, which
+moon64's install gate reads, records `required=38 resolved=38 pending=0
+runipcframe_tail=ready`, measured against `steamrt64/steamclient.so` build
+`a57ea463`.
 
-The fork carries 61 byte signatures; 37 are required (a missing required
-pattern makes `Patterns::init()` fail and SLSsteam aborts the entire injection,
-leaving Steam unpatched). Measured against this machine's libraries:
+Method: every x86_64 signature is re-derived against the live `steamrt64`
+libraries, not copied from i386, and then confirmed in a live LD_AUDIT harness.
+The built `SLSsteam.so` is audited into an inert process named `steam` that
+`dlopen`s the real `steamclient.so` and `steamui.so` under an isolated `HOME`,
+and SLSsteam's own `Required pattern` / `Optional pattern` log lines are read
+back.
 
-| library | signatures with 8+ bytes | unique matches |
+The six formerly-optional locators now resolve on x86_64, each with two
+independent proofs on `steamclient.so` build `a57ea463`:
+
+| locator | proof 1 | proof 2 |
 |---|---|---|
-| `ubuntu12_32/steamclient.so` + `steamui.so` | 57 | **53** |
-| `steamrt64/steamclient.so` + `steamui.so` | 57 | **0** |
+| `CCMInterface::RecvPkt` | only function referencing `"CCMInterface::RecvPkt"`, `"../clientdll/cminterface.cpp"` and the heartbeat-response string | calls `CProtoBufMsgBase::InitFromPacket`, `CJobMgr::BRouteMsgToJob`, `CSteamEngine::PostCallback` and the CNetMsg factory (17 callers, matching i386) |
+| `CUser::ProcessPendingLicenseUpdates` | iterates `CUser::m_vecPendingLicenses` (+0x2588) and calls `CAppInfoCache::GetOrAddAppData`, matching i386 | single external caller, matching i386; calls the `LicensesUpdated_t` notifier |
+| `CDepotDownloadMgr::BuildDepotDependency` | only function carrying `"Failed to initialize depot %u, manifest %llu (%s)"`, `"count >= 0"` and `"../public/tier1/utlvector.h"` | exactly 4 callers × 2 call sites (flag 0 and flag 1), matching i386's 4 callers |
+| `CUser::m_CompatManager` | the called constructor writes the vtable whose RTTI name is `14CCompatManager` | inside `CUser::CUser`, `lea rax,[rbx+0x4a58]` hands the `CUser` to that constructor |
+| `ParentalSignatureCheck` | directly follows the RSA signature-verification call inside the "Validating parental settings" function | exact `84 C0 75 24` guarding `"Parental settings signature did not verify for account ID %u"` (i386: `84 C0 75 27`) |
+| `CAPIJob::GetPlayerStats` | only function referencing `"Player.GetUserStats#1"` | single external caller carrying `"Bad GameID passed to RequestUserStats()"` and the `UserStatsReceived_t` strings, matching i386 |
 
-The 32-bit column proves the scanner is correct; the 64-bit zero is real. Every
-signature has to be re-derived, not copied.
+`make ARCH=x86_64 test-optional-locators` checks that all six resolve uniquely
+in the installed libraries. The five SteamUI locators
+(`AppControllerRunFrame`, `GetAppByID`, `MarkAppChange`,
+`BuildCompleteAppOverviewChange`, `OwnershipFlagsReference`) resolve on
+`steamui.so` build `57d58821`, with ownership offset 0x1c (see "libraryremoval").
 
-AceSLS's 64-bit build supplies 7 usable seeds (`TraceIPC`,
-`CSteamEngine::GetServerPipe`, `SetAppIdForCurrentPipe`, `ProcessIPCFrame`,
-`CUser::CheckAppOwnership`, `IClientUser::UpdateAppOwnershipTicket`,
-`CWebSocketConnection::BBuildAndAsyncSendFrame`). All 7 hit
-`steamrt64/steamclient.so` exactly once inside the executable PT_LOAD.
+Harness run on `main` (`bin/SLSsteam.so` BuildID `dd28a347`): 0 `Required
+pattern` misses, `LibraryRemoval: SteamUI queue ready (ownership offset=0x1c)`,
+`Loaded successfully`, and **12 optional patterns that do not resolve yet**.
+Each one logs "dependent feature disabled", so those features are off on x86_64,
+not wrong:
 
-**23 required patterns remain**, plus 6 `RunIPCFrame` dispatchers whose
-resolution tail is also arch-specific: the `IpcFrame` scanner looks for
-`E8 ?? ?? ?? ?? 8B 85 ?? ?? ?? ?? 83 C4 10 3D` (32-bit `add esp,0x10`);
-`steamrt64` contains neither that nor the `48 83 C4 10` form.
+- `ParentalSettingsReceived`
+- `CUser::MarkLicenseAsChanged`, `CUser::NotifyLicensesUpdated`
+- `CAppInfoCache::GetOrAddAppData`, `CAppInfoCache::ThreadedReadFromDisk`,
+  `CAppInfoCache::SkipFlagReference`, `CAppInfoCache::ShaReference`
+- `CDepotDownloadMgr::ProcessDepotManifest`,
+  `CDepotDownloadMgr::PrepareDepotDownload`,
+  `CDepotDownloadMgr::EvaluateConfigChanges`
+- `CDepotDownloadMgr::OnChunkUnpacked[cdecl]` and
+  `CDepotDownloadMgr::OnChunkUnpacked[regparm3]` (two i386 calling-convention
+  variants of one function)
 
 There is no symbol-table shortcut. `steamrt64/steamclient.so` keeps a real
 `.symtab` but only 483 named functions, all third-party (`Breakpad_*`, OpenSSL,
@@ -304,6 +337,10 @@ tinyxml), and 30 RTTI records, all tinyxml/SteamThreadTools. Steam's own
 classes are stripped in both arches. `CreateInterface` *is* exported, so vtable
 indices — which are arch-independent — remain an alternative route for the
 interface methods.
+
+Limit: all of this comes from the LD_AUDIT harness. It proves the signatures
+resolve and the hooks install against the real libraries, not that the patches
+behave correctly inside a running Steam client.
 
 ## Verification status
 
@@ -321,8 +358,9 @@ Run on Linux 7.3.4, gcc 16.2.1, glibc 2.44, Steam client builds 2026-10-22.
 | arch stamp | `make ARCH=x86_64 && make` | relinks both artifacts |
 
 **Not verified:** the client has never been launched against this build. No
-P2P session, no FakeAppIds path, nothing runtime. The pattern table above is the
-blocker, and until it is solved the binary loads and then declines to patch.
+P2P session, no FakeAppIds path, nothing runtime. In the LD_AUDIT harness the
+required patterns are complete (0 misses) and hook setup completes (`Loaded
+successfully`); 12 optional patterns still do not resolve (see "Pattern table").
 
 ## Upstream
 
