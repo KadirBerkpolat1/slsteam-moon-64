@@ -310,9 +310,15 @@ void checkX86_64(
 		}
 	}
 
-	expect(false,
-	       "ParentalSignatureCheck: not ported to x86_64 "
-	       "(degrades local parental unlock)");
+	const std::size_t parental = resolveUnique(
+		client, "ParentalSignatureCheck",
+		"84 C0 75 24 8B 93 ? ? 00 00 48 8D AC 24 ? ? 00 00 31 C0 48 8D 35 ? ? ? ? 48 89 EF E8 ? ? ? ?",
+		source);
+	if (parental != std::string::npos)
+	{
+		expect(static_cast<std::uint8_t>(client[parental + 2]) == 0x75,
+		       "ParentalSignatureCheck: the patched byte is not the jne");
+	}
 	expect(false,
 	       "CAPIJob::GetPlayerStats: not ported to x86_64 "
 	       "(degrades stats-job debug trace)");

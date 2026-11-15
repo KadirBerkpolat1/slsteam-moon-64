@@ -909,7 +909,19 @@ namespace Patterns
 	Pattern_t ParentalSignatureCheck
 	{
 		"ParentalSignatureCheck",
+#if defined(__x86_64__)
+		// Measured against steamrt64/steamclient.so (build a57ea463).
+		// Proof 1: Immediately follows `call 0x24e3ec0` (RSA signature verification,
+		// shared with ParentalSettingsReceived 0x186db40 and matching i386 0x26e4840)
+		// inside 0x186d710 ("Validating parental settings", "ParentalSettings\\Signature").
+		// Proof 2: Exact `84 C0 75 24` (`test al, al; jne +0x24`) guarding the log
+		// "Parental settings signature did not verify for account ID %u" with
+		// [rbx+0x242] (CUser SteamID account ID), matching i386 0x1a3cefc (`84 C0 75 27`).
+		// Unique at 5/35 tokens.
+		"84 C0 75 24 8B 93 ? ? 00 00 48 8D AC 24 ? ? 00 00 31 C0 48 8D 35 ? ? ? ? 48 89 EF E8 ? ? ? ?",
+#else
 		"84 C0 75 27 8B 85 ? ? ? ? 8D 9D ? ? ? ? 83 EC 04 FF B0 ? ? 00 00 8D 86 ? ? ? ? 50 53 E8 ? ? ? ?",
+#endif
 		SigFollowMode::None
 	};
 	Pattern_t ParentalSettingsReceived
