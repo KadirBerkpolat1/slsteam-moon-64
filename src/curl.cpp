@@ -1,5 +1,6 @@
 #include "curl.hpp"
 #include "cainfo.hpp"
+#include "nss_warmup.hpp"
 #include "log.hpp"
 
 #include <curl/curl.h>
@@ -17,6 +18,7 @@ static curl_easy_perform_t p_curl_easy_perform = nullptr;
 static curl_easy_cleanup_t p_curl_easy_cleanup = nullptr;
 
 static bool load_curl() {
+	nss::warmHostModules();
 	if (p_curl_easy_init) return true;
 
 	void* handle = dlopen("libcurl.so.4", RTLD_NOLOAD | RTLD_LAZY);

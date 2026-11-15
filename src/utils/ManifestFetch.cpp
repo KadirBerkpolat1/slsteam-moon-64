@@ -5,6 +5,7 @@
 #include "../feats/manifeststore.hpp"
 #include "../log.hpp"
 #include "../cainfo.hpp"
+#include "../nss_warmup.hpp"
 #include "boundedexecutor.hpp"
 #include "../sdk/IClientAppManager.hpp"
 
@@ -219,6 +220,7 @@ static curl_slist_free_all_t p_curl_slist_free_all = nullptr;
 static std::mutex g_curlLoadMutex;
 
 static bool load_curl() {
+	nss::warmHostModules();
 	std::lock_guard lock(g_curlLoadMutex);
 	if (p_curl_easy_init && p_curl_easy_setopt && p_curl_easy_perform
 	    && p_curl_easy_cleanup && p_curl_slist_append

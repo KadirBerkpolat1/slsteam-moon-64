@@ -37,6 +37,7 @@
 #include "../bootprof.hpp"
 #include "../thread_start.hpp"
 #include "../cainfo.hpp"
+#include "../nss_warmup.hpp"
 
 #include "../utils/ManifestFetch.hpp"
 #include "../utils/atomic_file.hpp"
@@ -204,6 +205,7 @@ static curl_easy_strerror_t p_curl_easy_strerror = nullptr;
 
 bool loadCurl()
 {
+	nss::warmHostModules();
 	if (p_curl_easy_init) return true;
 	void* h = dlopen("libcurl.so.4", RTLD_NOLOAD | RTLD_LAZY);
 	if (!h) h = dlopen("libcurl.so.4", RTLD_LAZY);
