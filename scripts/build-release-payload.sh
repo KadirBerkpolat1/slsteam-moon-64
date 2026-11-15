@@ -5,15 +5,22 @@
 # Output in DIR (default dist/release/x86_64), nothing else:
 #   SLSsteam.so          built by scripts/build-portable-container.sh (AlmaLinux 8.10)
 #   SLSsteam.so.sha256   "<sha256>  SLSsteam.so"
+#   netsock64.so         moon64's P2P cert patch, patches/netsock64/
+#                        steamclient_audit64.c at --moon64-rev, built in the
+#                        same image with the installer's gcc command
+#   netsock64.so.sha256  "<sha256>  netsock64.so"
 #   pattern-status.txt   the pattern table measured on THIS SLSsteam.so in this
-#                        run, with binary_sha256= naming it (see "Binding" below)
+#                        run, naming both objects by sha256 (see "Binding")
 #
 # Steps, each of which refuses (exit 1, DIR untouched) on failure:
-#   1. Container build. Symbol floor gated at GLIBC_2.17, GLIBCXX_3.4.22 and
-#      CXXABI_1.3.11, the floor PORTING.md's working-floor numbers rest on.
-#   2. Load check: the library must be accepted as an LD_AUDIT module by the
+#   1. Container build of both objects. Each must be an ELF 64-bit x86-64
+#      shared object with a symbol floor of at most GLIBC_2.17, GLIBCXX_3.4.22
+#      and CXXABI_1.3.11, the floor PORTING.md's working-floor numbers rest on.
+#   2. Load check: each object must be accepted as an LD_AUDIT module by the
 #      stock FLOOR_IMAGE's own ld.so and libstdc++ (default ubuntu:18.04,
-#      glibc 2.27, the measured working floor).
+#      glibc 2.27, the measured working floor). netsock64.so does nothing until
+#      la_objopen sees steamclient.so, so accepted-and-la_objopen-looked-up is
+#      the whole check for it, not proof that it patches anything.
 #   3. Pattern measurement: the library is LD_AUDIT-loaded into an inert host
 #      named "steam" that dlopens steamclient.so and steamui.so from
 #      --steam-runtime. It runs in bubblewrap with the whole filesystem
@@ -25,12 +32,15 @@
 #      required, resolved, pending, runipcframe_tail) and pass the installer's
 #      gate (pending=0, runipcframe_tail=ready).
 #
-# Binding: pattern-status.txt is an output of the run that built and measured
-# the library, and its single binary_sha256= line is the sha256 of the
-# SLSsteam.so beside it. A consumer must refuse the counts unless binary_sha256
-# equals the sha256 of the library it downloaded.
+# Binding: pattern-status.txt is an output of the run that built both objects.
+# Its single binary_sha256= line is the sha256 of the SLSsteam.so beside it and
+# its single netsock64_sha256= line that of the netsock64.so. A consumer must
+# refuse the payload unless each equals the sha256 of the file it downloaded.
 #
 # Options:
+#   --moon64 DIR         moon64 checkout to build netsock64.so from (required)
+#   --moon64-rev REV     moon64 commit to take the source from (default: its
+#                        HEAD); uncommitted changes there are not included
 #   --out DIR            payload directory (default dist/release/x86_64)
 #   --steam-runtime DIR  directory with steamclient.so and steamui.so to measure
 #                        against (default ~/.local/share/Steam/steamrt64)
@@ -39,7 +49,7 @@
 #   --no-load-check      skip step 2; the payload is still built, and the run
 #                        reports the working floor as not measured
 #
-# Needs: git, bwrap, python3, cc, readelf, objdump, sha256sum.
+# Needs: git, bwrap, python3, cc, file, readelf, objdump, sha256sum.
 
 set -euo pipefail
 
@@ -55,27 +65,32 @@ OUT="$REPO_ROOT/dist/release/x86_64"
 STEAM_RT="$HOME/.local/share/Steam/steamrt64"
 RUNTIME=""
 LOAD_CHECK=1
+MOON64=""
+MOON64_REV=HEAD
 
 die() { echo "build-release-payload: $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
 	case "$1" in
+		--moon64)        MOON64="${2:?}"; shift 2 ;;
+		--moon64-rev)    MOON64_REV="${2:?}"; shift 2 ;;
 		--out)           OUT="${2:?}"; shift 2 ;;
 		--steam-runtime) STEAM_RT="${2:?}"; shift 2 ;;
 		--runtime)       RUNTIME="${2:?}"; shift 2 ;;
 		--floor-image)   FLOOR_IMAGE="${2:?}"; shift 2 ;;
 		--no-load-check) LOAD_CHECK=0; shift ;;
-		-h|--help)       sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		-h|--help)       sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		*)               die "unknown option: $1 (try --help)" ;;
 	esac
 done
 
-for tool in git bwrap python3 cc readelf objdump sha256sum; do
+for tool in git bwrap python3 cc file readelf objdump sha256sum; do
 	command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 for lib in steamclient.so steamui.so; do
 	[ -f "$STEAM_RT/$lib" ] || die "$STEAM_RT/$lib not found (set --steam-runtime)"
 done
+[ -n "$MOON64" ] || die "--moon64 DIR is required: the moon64 checkout netsock64.so is built from"
 OUT="$(realpath -m "$OUT")"
 STEAM_RT="$(realpath "$STEAM_RT")"
 
@@ -85,29 +100,58 @@ COMMITTED_STATUS="$(git -C "$REPO_ROOT" show HEAD:res/pattern-status.txt)" ||
 if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ]; then
 	echo "==> note: uncommitted changes are not part of this payload (building $COMMIT)" >&2
 fi
+NETSOCK_SRC=patches/netsock64/steamclient_audit64.c
+NETSOCK_COMMIT="$(git -C "$MOON64" rev-parse --verify --quiet "$MOON64_REV^{commit}")" ||
+	die "$MOON64_REV is not a commit in $MOON64"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/slsteam-release.XXXXXX")"
 cleanup() { chmod -R u+w "$WORK" 2>/dev/null || true; rm -rf "$WORK"; }
 trap cleanup EXIT
+git -C "$MOON64" show "$NETSOCK_COMMIT:$NETSOCK_SRC" > "$WORK/steamclient_audit64.c" ||
+	die "$NETSOCK_SRC is not in moon64 $NETSOCK_COMMIT"
 
 version_le() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$2" ]; }
+floor() { "$SCRIPT_DIR/abi-floor.sh" --floor "$1" "$2"; }
+# gate OBJECT NS FLOOR MAX
+gate() { version_le "${3:-0}" "$4" || die "$1 needs $2_$3, above $2_$4"; }
+# The installer's own test (moon64 install.sh), so it never refuses what this emits.
+is_x86_64_so() {
+	case "$(file -b "$1" 2>/dev/null)" in
+		'ELF 64-bit LSB shared object, x86-64'*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
 
 # --- 1. build ---------------------------------------------------------------
-echo "==> [1/4] container build of $COMMIT"
-build_args=(--arch x86_64 --out "$WORK/build" --max-glibc "$MAX_GLIBC" --max-glibcxx "$MAX_GLIBCXX")
+echo "==> [1/4] container build of $COMMIT, netsock64.so from moon64 $NETSOCK_COMMIT"
+build_args=(--arch x86_64 --out "$WORK/build" --max-glibc "$MAX_GLIBC" --max-glibcxx "$MAX_GLIBCXX"
+	--netsock64 "$WORK/steamclient_audit64.c")
 [ -z "$RUNTIME" ] || build_args+=(--runtime "$RUNTIME")
 "$SCRIPT_DIR/build-portable-container.sh" "${build_args[@]}"
 SO="$WORK/build/SLSsteam.so"
-[ -s "$SO" ] || die "the container build produced no SLSsteam.so"
+NS="$WORK/build/netsock64.so"
+for f in "$SO" "$NS"; do
+	[ -s "$f" ] || die "the container build produced no $(basename "$f")"
+	is_x86_64_so "$f" || die "$(basename "$f") is not an ELF 64-bit LSB x86-64 shared object: $(file -b "$f")"
+done
 SHA="$(sha256sum "$SO" | cut -d' ' -f1)"
+NS_SHA="$(sha256sum "$NS" | cut -d' ' -f1)"
 
-glibc_floor="$("$SCRIPT_DIR/abi-floor.sh" --floor GLIBC "$SO")"
-glibcxx_floor="$("$SCRIPT_DIR/abi-floor.sh" --floor GLIBCXX "$SO")"
-cxxabi_floor="$("$SCRIPT_DIR/abi-floor.sh" --floor CXXABI "$SO")"
-version_le "${glibc_floor:-0}" "$MAX_GLIBC" || die "SLSsteam.so needs GLIBC_$glibc_floor, above GLIBC_$MAX_GLIBC"
-version_le "${glibcxx_floor:-0}" "$MAX_GLIBCXX" || die "SLSsteam.so needs GLIBCXX_$glibcxx_floor, above GLIBCXX_$MAX_GLIBCXX"
-version_le "${cxxabi_floor:-0}" "$MAX_CXXABI" || die "SLSsteam.so needs CXXABI_$cxxabi_floor, above CXXABI_$MAX_CXXABI"
-echo "==> symbol floor: GLIBC_$glibc_floor GLIBCXX_$glibcxx_floor CXXABI_$cxxabi_floor"
+glibc_floor="$(floor GLIBC "$SO")"
+glibcxx_floor="$(floor GLIBCXX "$SO")"
+cxxabi_floor="$(floor CXXABI "$SO")"
+ns_glibc_floor="$(floor GLIBC "$NS")"
+ns_glibcxx_floor="$(floor GLIBCXX "$NS")"
+ns_cxxabi_floor="$(floor CXXABI "$NS")"
+gate SLSsteam.so GLIBC "$glibc_floor" "$MAX_GLIBC"
+gate SLSsteam.so GLIBCXX "$glibcxx_floor" "$MAX_GLIBCXX"
+gate SLSsteam.so CXXABI "$cxxabi_floor" "$MAX_CXXABI"
+gate netsock64.so GLIBC "$ns_glibc_floor" "$MAX_GLIBC"
+gate netsock64.so GLIBCXX "$ns_glibcxx_floor" "$MAX_GLIBCXX"
+gate netsock64.so CXXABI "$ns_cxxabi_floor" "$MAX_CXXABI"
+ns_floor="GLIBC_$ns_glibc_floor${ns_glibcxx_floor:+ GLIBCXX_$ns_glibcxx_floor}${ns_cxxabi_floor:+ CXXABI_$ns_cxxabi_floor}"
+echo "==> symbol floor: SLSsteam.so GLIBC_$glibc_floor GLIBCXX_$glibcxx_floor CXXABI_$cxxabi_floor"
+echo "==> symbol floor: netsock64.so $ns_floor"
 
 # --- 2. load check on the floor image ---------------------------------------
 load_checked="not measured (--no-load-check)"
@@ -122,9 +166,9 @@ if [ "$LOAD_CHECK" = 1 ]; then
 		touch "$cache/ready"
 	fi
 	mkdir -p "$WORK/lc"
-	cp "$SO" "$WORK/lc/SLSsteam.so"
+	cp "$SO" "$NS" "$WORK/lc/"
 	cat > "$WORK/lc/check.sh" <<-'EOF'
-	so=/tmp/lc/SLSsteam.so
+	so="$1"
 	glibc=""
 	for l in /lib/x86_64-linux-gnu/libc.so.6 /lib64/libc.so.6 /usr/lib64/libc.so.6; do
 		[ -x "$l" ] && { glibc=$("$l" 2>&1 | head -1 | sed 's/.*version \([0-9.]*\).*/\1/; s/\.$//'); break; }
@@ -135,18 +179,21 @@ if [ "$LOAD_CHECK" = 1 ]; then
 	printf 'glibc=%s rc=%s la_objopen_lookups=%s\n' "$glibc" "$rc" "$n"
 	printf '%s\n' "$out"
 	EOF
-	lc_out="$(bwrap --unshare-user --uid 0 --gid 0 --unshare-net --unshare-pid --die-with-parent \
-		--ro-bind "$cache/rootfs" / --dev /dev --proc /proc --tmpfs /tmp \
-		--ro-bind "$WORK/lc" /tmp/lc --clearenv --setenv PATH /usr/bin:/bin \
-		/bin/sh /tmp/lc/check.sh)"
-	printf '%s\n' "$lc_out" | sed 's/^/    /'
-	lc_head="$(printf '%s\n' "$lc_out" | head -1)"
-	lc_msg="$(printf '%s\n' "$lc_out" | tail -n +2)"
-	lc_glibc="$(printf '%s' "$lc_head" | sed -n 's/^glibc=\([0-9.]*\) .*/\1/p')"
-	case "$lc_head" in
-		*" rc=0 la_objopen_lookups="[1-9]*) [ -z "$lc_msg" ] || die "$FLOOR_IMAGE ld.so complained: $lc_msg" ;;
-		*) die "$FLOOR_IMAGE ld.so did not accept SLSsteam.so as an audit module: $lc_head $lc_msg" ;;
-	esac
+	lc_glibc=""
+	for name in SLSsteam.so netsock64.so; do
+		lc_out="$(bwrap --unshare-user --uid 0 --gid 0 --unshare-net --unshare-pid --die-with-parent \
+			--ro-bind "$cache/rootfs" / --dev /dev --proc /proc --tmpfs /tmp \
+			--ro-bind "$WORK/lc" /tmp/lc --clearenv --setenv PATH /usr/bin:/bin \
+			/bin/sh /tmp/lc/check.sh "/tmp/lc/$name")"
+		printf '%s\n' "$lc_out" | sed "s/^/    $name: /"
+		lc_head="$(printf '%s\n' "$lc_out" | head -1)"
+		lc_msg="$(printf '%s\n' "$lc_out" | tail -n +2)"
+		lc_glibc="$(printf '%s' "$lc_head" | sed -n 's/^glibc=\([0-9.]*\) .*/\1/p')"
+		case "$lc_head" in
+			*" rc=0 la_objopen_lookups="[1-9]*) [ -z "$lc_msg" ] || die "$FLOOR_IMAGE ld.so complained about $name: $lc_msg" ;;
+			*) die "$FLOOR_IMAGE ld.so did not accept $name as an audit module: $lc_head $lc_msg" ;;
+		esac
+	done
 	load_checked="$FLOOR_IMAGE@$(cat "$cache/digest") (glibc $lc_glibc)"
 else
 	echo "==> [2/4] load check skipped"
@@ -292,19 +339,23 @@ fi
 P="$WORK/payload"
 mkdir -p "$P"
 install -m 755 "$SO" "$P/SLSsteam.so"
-(cd "$P" && sha256sum SLSsteam.so > SLSsteam.so.sha256)
+install -m 755 "$NS" "$P/netsock64.so"
+(cd "$P" && sha256sum SLSsteam.so > SLSsteam.so.sha256 && sha256sum netsock64.so > netsock64.so.sha256)
 {
 	printf '# Machine-readable state of the x86_64 pattern table of the SLSsteam.so\n'
 	printf '# published beside this file. Generated by scripts/build-release-payload.sh\n'
 	printf '# in the run that built that library and measured it under LD_AUDIT; do\n'
-	printf '# not edit. binary_sha256 is the library these counts describe: refuse them\n'
-	printf '# for any other file. optional_missing names features that stay disabled.\n'
+	printf '# not edit. binary_sha256 is the library these counts describe and\n'
+	printf '# netsock64_sha256 the netsock64.so built with it: refuse either for any\n'
+	printf '# other file. optional_missing names features that stay disabled.\n'
 	printf '# Optional patterns missing: %s\n' "$(m optional_missing_names | sed 's/,/, /g')"
 	for key in arch required resolved pending runipcframe_tail; do
 		printf '%s=%s\n' "$key" "$(m "$key")"
 	done
 	printf 'binary_sha256=%s\n' "$SHA"
+	printf 'netsock64_sha256=%s\n' "$NS_SHA"
 	printf 'source_commit=%s\n' "$COMMIT"
+	printf 'netsock64_source_commit=%s\n' "$NETSOCK_COMMIT"
 	printf 'steamclient_build_id=%s\n' "$(m steamclient_build_id)"
 	printf 'steamui_build_id=%s\n' "$(m steamui_build_id)"
 	printf 'optional_resolved=%s\n' "$(m optional_resolved)"
@@ -312,6 +363,7 @@ install -m 755 "$SO" "$P/SLSsteam.so"
 	printf 'glibc_symbol_floor=%s\n' "$glibc_floor"
 	printf 'glibcxx_symbol_floor=%s\n' "$glibcxx_floor"
 	printf 'cxxabi_symbol_floor=%s\n' "$cxxabi_floor"
+	printf 'netsock64_glibc_symbol_floor=%s\n' "$ns_glibc_floor"
 } > "$P/pattern-status.txt"
 
 mkdir -p "$(dirname "$OUT")"
@@ -321,7 +373,8 @@ rm -rf "$OUT"
 mv "$OUT.partial" "$OUT"
 
 echo "==> payload for $COMMIT in $OUT"
-(cd "$OUT" && sha256sum SLSsteam.so SLSsteam.so.sha256 pattern-status.txt | sed 's/^/    /')
-echo "==> symbol floor: GLIBC_$glibc_floor GLIBCXX_$glibcxx_floor CXXABI_$cxxabi_floor"
-echo "==> loads as an LD_AUDIT module on: $load_checked"
+(cd "$OUT" && sha256sum SLSsteam.so SLSsteam.so.sha256 netsock64.so netsock64.so.sha256 pattern-status.txt | sed 's/^/    /')
+echo "==> symbol floor: SLSsteam.so GLIBC_$glibc_floor GLIBCXX_$glibcxx_floor CXXABI_$cxxabi_floor"
+echo "==> symbol floor: netsock64.so $ns_floor"
+echo "==> both load as LD_AUDIT modules on: $load_checked"
 echo "==> pattern table: $(m resolved)/$(m required) required, pending=$(m pending), runipcframe_tail=$(m runipcframe_tail), on steamclient $(m steamclient_build_id)"
