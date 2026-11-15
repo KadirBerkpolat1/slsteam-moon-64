@@ -42,8 +42,8 @@ changes are not included, and the working tree's `obj/`, `bin/` and
 | `manifest.json` | see below |
 
 `manifest.json` keys: `arch`, `glibc_floor`, `glibcxx_floor`, `cxxabi_floor`
-(the maximum over the LD_AUDIT objects), `audit_interface` (the highest LD_AUDIT
-version `la_version` accepts; older loaders get their own version back),
+(the maximum over the LD_AUDIT objects), `audit_interface` (`LAV_CURRENT` in
+the image's `<link.h>`, not a check of what any object's `la_version` returns),
 `source_commit`, `built_at`, `image`, `image_digest`,
 `helper_image`/`helper_image_digest` (with `--with-helper`),
 `netsock64_source_sha256` (with `--netsock64`), `runtime`, and `files` with
