@@ -12,6 +12,7 @@
 #include "libmem/libmem.h"
 
 #include <array>
+#include <atomic>
 
 namespace
 {
@@ -90,19 +91,51 @@ CUser* CSteamEngine::getUser(uint32_t index)
 
 IClientUtils* CSteamEngine::getUtils()
 {
-	if (!getUser(0))
+	// Validate by vtable, not by getUser(0): the engine can hand us a utils
+	// sub-object before any CUser exists.  A successful result is stable for the
+	// process lifetime, so cache it and keep LM_FindSegment off the hot path;
+	// never cache a failure, because the engine may not be built yet.
+	static std::atomic<IClientUtils*> cached{nullptr};
+	if (IClientUtils* const hit = cached.load(std::memory_order_acquire))
 	{
-		return nullptr;
+		return hit;
 	}
-	const static auto offset = readDisp32(
-		Patterns::CSteamEngine::Offset_ClientUtils.address
+
+	const lm_address_t instruction =
+		Patterns::CSteamEngine::Offset_ClientUtils.address;
+	if (instruction == 0 || instruction == LM_ADDRESS_BAD)
+		return nullptr;
+
+	const std::int32_t offset = readDisp32(
+		instruction
 		#if defined(__x86_64__)
 		+ kDispAfterRexOpcodeModrm
 		#else
 		+ kDispAfterOpcodeModrm
 		#endif
 	);
-	return atOffset<IClientUtils>(this, offset);
+	auto* const utils = atOffset<IClientUtils>(this, offset);
+
+	// The vtable pointer lives in .data.rel.ro (not executable), so check the
+	// first virtual function it points at instead: THAT lands in .text.
+	lm_address_t vtable = 0;
+	if (LM_ReadMemory(
+		reinterpret_cast<lm_address_t>(utils),
+		reinterpret_cast<lm_byte_t*>(&vtable), sizeof(vtable)) !=
+		sizeof(vtable) || vtable == 0 || vtable == LM_ADDRESS_BAD)
+	{
+		return nullptr;
+	}
+
+	lm_address_t slot0 = 0;
+	if (LM_ReadMemory(vtable, reinterpret_cast<lm_byte_t*>(&slot0),
+		sizeof(slot0)) != sizeof(slot0) || !executableAddress(slot0))
+	{
+		return nullptr;
+	}
+
+	cached.store(utils, std::memory_order_release);
+	return utils;
 }
 
 void CSteamEngine::setAppIdForCurrentPipe(uint32_t appId)
