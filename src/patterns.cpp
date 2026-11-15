@@ -1108,14 +1108,37 @@ namespace Patterns
 		Pattern_t InitFromPacket
 		{
 			"CProtoBufMsgBase::InitFromPacket",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Contains assert string "CProtoBufMsg::InitFromPacket( IMsgNetPacket )".
+			// Proof 2: Exact 166 callers (matching i386 0x27f78a0's 166 callers) and
+			// identical body (checks [rbx+0x19], zeroes [rbx+0x38], decrements m_iRefs).
+			// Unique at 24/43 tokens.
+			"41 55 41 54 55 53 48 89 FB 48 83 EC 48 48 8B 05 ? ? ? ? "
+			"64 4C 8B 24 25 28 00 00 00 4C 89 64 24 38 49 89 F4 8B 10 31 C0 85 D2",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 58 8B 45 ? 8B 8D",
 			SigFollowMode::Relative
+#endif
 		};
 		Pattern_t Send
 		{
 			"CProtoBufMsgBase::Send",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Exact 2 callers (0x1130e60 and 0x25ec4d0, matching i386 0x27f7d50's
+			// 2 callers), warns at ../common/msgprotobuf.cpp line 0x640 ("Sending msg of
+			// type '%s' with timeout=0...").
+			// Proof 2: Stores ByteSize in [rbx+0x2c], calls [rax+0x48] on [rbx+0x38],
+			// and returns `lea eax, [rax + rbp + 8]`.  Unique at 17/47 tokens.
+			"55 53 48 89 FB 48 83 EC 08 80 3D ? ? ? ? 00 48 8B 7F 30 75 0A "
+			"8B 87 C0 00 00 00 85 C0 74 30 E8 ? ? ? ? 48 8B 7B 38 48 89 C5 89 43 2C",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 59 5A 50 56 E8 ? ? ? ? 83 C4 0C",
 			SigFollowMode::Relative
+#endif
 		};
 	};
 
@@ -1212,8 +1235,21 @@ namespace Patterns
 		Pattern_t Offset_User
 		{
 			"CSteamEngine::m_pUser",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: CSteamEngine::CSteamEngine (0x17c0000) initializes m_ClientUtils
+			// at +0x1118 and this CUtlVector<UserEntry> at +0x11c0 (m_Size at +0x11d0).
+			// Proof 2: CSteamEngine::BMainLoop (0x17c4930, "CSteamEngine::BMainLoop")
+			// and sibling vtable slots [18], [21], [31], [33] scale index<<4 (16-byte
+			// pairs) and add [this+0x11c0] before dereferencing [rax+8] as CUser*.
+			// Anchored on `48 03 83 C0 11 00 00` (disp32 at +3 = kDispAfterRexOpcodeModrm);
+			// unique at 17 tokens (full 27-token tail pins the [rax+0x138] virtual call).
+			"48 03 83 ? ? 00 00 48 8B 78 08 48 8B 07 FF 90 38 01 00 00 83 C5 01 41 83 C4 01",
+			SigFollowMode::None,
+#else
 			"8B 80 ? ? ? ? FF 75 ? 8D 34",
 			SigFollowMode::None,
+#endif
 			nullptr,
 			"Patterns::CSteamEngine::Offset_User"
 		};
@@ -1224,16 +1260,42 @@ namespace Patterns
 		Pattern_t GetServerDetails
 		{
 			"CSteamMatchmakingServers::GetServerDetails",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: 24CSteamMatchMakingServers RTTI vtable (0x30e5d78, 27 slots)
+			// slot 7 = 0x1676900; 34CAdapterSteamMatchmakingServers003[7] forwards via
+			// `jmp [rax + 0x38]` (matching i386 slot 7 at 0x183a6c0).
+			// Proof 2: Locks [rdi+0x68] and scans the [r13+0x38] list (count [r13+0x48]).
+			// Unique at 42/46 tokens.
+			"41 55 49 89 FD 41 54 4C 8D 67 68 55 4C 89 E7 89 D5 53 48 89 F3 48 83 EC 08 "
+			"E8 ? ? ? ? 49 63 55 48 49 8B 45 38 85 D2 7E 46 48 8D 14 D0",
+			SigFollowMode::None
+#else
 			"89 45 ? 83 C4 10 83 EC 0C 89 F3",
 			SigFollowMode::PrologueUpwards,
 			kIpcPrologue
+#endif
 		};
 		Pattern_t RequestInternetServerList
 		{
 			"CSteamMatchmakingServers::RequestInternetServerList",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: 24CSteamMatchMakingServers RTTI vtable (0x30e5d78, 27 slots)
+			// slot 0 = 0x167a670; 34CAdapterSteamMatchmakingServers003[0] forwards via
+			// `jmp [rax]` (matching i386 slot 0 at 0x18398f0).
+			// Proof 2: Locks [rdi+0x68], allocates 0x410 bytes (0x384 on i386), and
+			// passes `xor ecx, ecx; mov r8d, 1` (eInternet=0), distinguishing it from
+			// the 4 sibling LAN/Friends/Favorites/History slots; unique at 17/36 tokens.
+			"BF 10 04 00 00 E8 ? ? ? ? FF B3 80 01 00 00 31 C9 48 89 DE 48 89 C7 "
+			"FF B3 78 01 00 00 41 B8 01 00 00 00",
+			SigFollowMode::PrologueUpwards,
+			std::vector<uint8_t> { 0x55, 0x41, 0xCE, 0x89, 0x41, 0x56, 0x41, 0x57, 0x41, 0xE5, 0x89, 0x48, 0x55 }
+#else
 			"C7 04 24 ? ? 00 00 E8 ? ? ? ? 5A 89 45 ? 59 FF B6 ? ? ? ? FF B6 ? ? ? ? FF B6 ? ? ? ? FF B6 ? ? ? ? FF B6 ? ? ? ? 6A 01",
 			SigFollowMode::PrologueUpwards,
 			std::vector<uint8_t> { 0xe8, 0x57, 0xe5, 0x89, 0x55 }
+#endif
 		};
 	}
 
@@ -1279,23 +1341,62 @@ namespace Patterns
 		Pattern_t GetSubscribedApps
 		{
 			"CUser::GetSubscribedApps",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: CUser(259) RTTI vtable slot 182 (0x1844c00) rebases `this`
+			// by -0x1f88 and tail-jumps to 0x1844840, matching i386 slot 182 -> 0x1a1f630.
+			// Proof 2: Same (this, pAppList, size, flags) entry shape: two 16-byte
+			// movdqa stack vector inits and signed count check on [rdi+0x24c0].
+			// Unique at 15 tokens; 44-token prologue masks only the .rodata RIP disp.
+			"41 57 41 56 41 55 41 54 55 53 48 83 EC 78 66 0F 6F 05 ? ? ? ? "
+			"48 89 74 24 10 89 54 24 0C 88 4C 24 0B 64 48 8B 04 25 28 00 00 00",
+			SigFollowMode::None
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 83 C4 80 0F B6 45 14 6A 00 6A 00 88 45 8F 8D 45 D0 66 0F 6F 86 ? ? ? ? 50 89 45 80 0F 11 45 BC 66 0F 6F 86 ? ? ? ? 89 75 94 0F 29 45 A8",
 			SigFollowMode::None
+#endif
 		};
 		Pattern_t PostCallback
 		{
 			"CSteamEngine::PostCallback",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: All six `mov esi, 0x1f6` (AppOwnershipTicketReceived_t) sites
+			// call 0x1071880 with (this, 0x1f6, &cb, 0x1c, 0), forwarding to
+			// CSteamEngine::PostCallback (0x17b4e40) and tail-jumping to 0x1071720.
+			// Proof 2: 0x1071720 checks [rax+0x14] > 0 and asserts "erverPipes.Element(i) > 0"
+			// in ../clientdll/baseuser.cpp (line 0xb6), matching i386 0x11aa6b0->0x11aa710.
+			// Sibling 0x1071a00 shares the first 74 bytes; the trailing `E9 52 FE FF FF`
+			// jump to 0x1071720 makes it unique at 75/78 tokens.
+			"41 55 45 31 C9 41 89 CD 41 54 49 89 D4 55 89 F5 53 48 89 FB 48 83 EC 10 "
+			"48 8D 05 ? ? ? ? 8B 77 48 48 8B 38 41 50 41 89 C8 48 89 D1 89 EA E8 ? ? ? ? "
+			"48 83 C4 18 44 89 E9 4C 89 E2 89 EE 48 89 DF 5B 5D 41 5C 41 5D E9 52 FE FF FF",
+			SigFollowMode::None,
+#else
 			"E8 ? ? ? ? 8D 86 ? ? ? ? 83 C4 18 68 F6 01 00 00",
 			SigFollowMode::Relative,
+#endif
 			nullptr,
 			"Patterns::CUser::PostCallback"
 		};
 		Pattern_t PostCallbackToAppId
 		{
 			"CUser::PostCallbackToAppId",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Direct entry 0x1071c60 checks `cmp esi, 7` and asserts
+			// "Don't post callbacks to WinUI" in ../clientdll/baseuser.cpp (line 0x15e),
+			// identical to i386 0x11aac40.
+			// Proof 2: Walks the same 0x18-stride RB-tree at [rbp+0xcc8..0xcf8] and calls
+			// CSteamEngine::PostCallbackToPipe (0x17ac590).  Unique at 19/47 tokens.
+			"41 57 41 56 41 55 41 54 55 48 89 FD 53 48 83 EC 28 83 FE 07 89 74 24 0C "
+			"89 54 24 18 48 89 4C 24 10 44 89 44 24 1C 0F 84 ? ? ? ? 4C 8D 3D",
+			SigFollowMode::None
+#else
 			"84 C0 0F 45 F8 89 F8",
 			SigFollowMode::PrologueUpwards,
 			std::vector<uint8_t> { 0xE8, 0x53, 0x56, 0x57, 0x55 }
+#endif
 		};
 		Pattern_t UpdateAppOwnershipTicket
 		{
@@ -1464,9 +1565,21 @@ namespace Patterns
 		Pattern_t BCanRemotePlayTogether
 		{
 			"IClientAppManager::BCanRemotePlayTogether",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: 15CUserAppManager RTTI vtable (0x309fab0, 117 slots) slot 73
+			// = 0x103c9e0; locks CAppInfoCache, checks RemotePlayTogetherTestingBranches
+			// (0x103a4d0) with CUser* [r12+0xf8], and falls back through parent appid
+			// (0x1027270, "dlcforappid"), matching i386 0x1185340.
+			// Proof 2: Unique at 16/47 tokens; 47-token prefix masks RIP & cache disp.
+			"41 55 41 54 49 89 FC 55 89 F5 53 48 83 EC 08 4C 8D 2D ? ? ? ? "
+			"49 8B 45 00 48 8D 98 ? ? 00 00 48 89 DF E8 ? ? ? ? 89 EE 48 89 DF E8",
+			SigFollowMode::None
+#else
 			"58 5A FF 74 24 ? 56 E8 ? ? ? ? 83 C4 10 85 C0 74",
 			SigFollowMode::PrologueUpwards,
 			std::vector<uint8_t> { 0xe8, 0x53, 0x56, 0x57 }
+#endif
 		};
 	}
 
@@ -1553,9 +1666,21 @@ namespace Patterns
 		Pattern_t BUpdateAppOwnershipTicket
 		{
 			"IClientUser::BUpdateAppOwnershipTicket",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: CUser(259) RTTI vtable slot 69 (0x185f860) rebases `this` by
+			// -0x1f88 and tail-jumps to 0x185f560 (matching i386 slot 69 at 0x1a628e0).
+			// Proof 2: Called directly by CSteamEngine::SetAppIdForCurrentPipe (0x17cc6f9)
+			// and preserves the `test dl, dl; cmp dword [rbx+0x1b0], 4` guard.
+			// Unique at 21/49 tokens.
+			"41 57 41 56 41 55 41 54 55 53 48 89 FB 48 81 EC B8 00 00 00 84 D2 "
+			"64 48 8B 2C 25 28 00 00 00 48 89 AC 24 A8 00 00 00 89 F5 0F 85 ? ? ? ? 83 BB",
+			SigFollowMode::None
+#else
 			"83 EC 0C 89 F3 8B 7D ? FF 30 E8 ? ? ? ? 83 C4 10 83 FF 01 77 ? 84 C0 75 ? 80 7D ? 00 74 ? 80 7D ? 00 0F 84 ? ? ? ? 8D 65",
 			SigFollowMode::PrologueUpwards,
 			kIpcPrologue
+#endif
 		};
 		Pattern_t GetAppOwnershipTicketExtendedData
 		{
@@ -1580,8 +1705,20 @@ namespace Patterns
 		Pattern_t IsUserSubscribedAppInTicket
 		{
 			"IClientUser::IsUserSubscribedAppInTicket",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Called by CUser(259) RTTI vtable slot 118 (0x1832de0) after
+			// `lea rdi, [rbx - 0x1f88]`, matching i386 slot 118 (0x1a5fdd0 -> 0x11ad7a0).
+			// Proof 2: Contains assert "steamID == GSteamEngine().GetTicketSteamID(...)"
+			// in ../clientdll/baseuser.cpp and scans the 0xb8-stride ticket vector.
+			// Unique at 16/48 tokens.
+			"41 57 41 56 41 55 41 54 55 53 48 83 EC 18 89 4C 24 0C 8B 8F ? ? 00 00 "
+			"85 C9 0F 8E ? ? ? ? 49 89 F6 48 89 FD 49 89 D5 31 DB BE 02 00 00 00",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 89 C3 83 C4 20 8B ? ? ? ? ? 8B",
 			SigFollowMode::Relative
+#endif
 		};
 		// The tail thunk adjusts the interface `this` to the implementation
 		// pointer with `sub eax,<off>` (`2D ?? ?? 00 00`).  That offset is a
@@ -1662,8 +1799,20 @@ namespace Patterns
 		Pattern_t LoadPackage
 		{
 			"CPackageInfoCache::LoadPackage",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Contains assert "Corrupt data in buffer for package %u, CLN %u,"
+			// in ../clientdll/appdatacache.cpp; called by CPackageInfoCache::ReadFromDisk
+			// (0x1036c00).
+			// Proof 2: Populates PackageInfo (AppIdVec at +0x40, DepotIdVec at +0x58)
+			// via CUtlMemory<uint32_t>::Grow (0x102d4f0).  Unique at 20/47 tokens.
+			"41 57 41 56 49 89 F6 41 55 41 54 55 53 48 89 FB 48 81 EC 18 01 00 00 "
+			"4C 8B 25 ? ? ? ? 89 54 24 14 48 63 69 10 64 4C 8B 3C 25 28 00 00 00",
+			SigFollowMode::None
+#else
 			"E8 ? ? ? ? 83 C4 10 84 C0 0F 84 ? ? ? ? 8B 95 ? ? FF FF 8B 7A 18 83 FF FF",
 			SigFollowMode::Relative
+#endif
 		};
 	}
 
@@ -1672,8 +1821,21 @@ namespace Patterns
 		Pattern_t Grow
 		{
 			"CUtlMemory::Grow",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Call site 0x1036491 inside CPackageInfoCache::LoadPackage
+			// (0x10361a0) growing PackageInfo::AppIdVec ([rbx+0x40], size at [rbx+0x50]).
+			// Proof 2: Target 0x102d4f0 has 101 callers (matching i386 99 callers), uses
+			// 4-byte element stride (`mov ecx, 4; lea rsi, [rax*4]`) and asserts at
+			// ../public/tier1/utlmemory.h line 0x1fa (identical to i386 0x116eb80).
+			// Anchoring at the LoadPackage call site disambiguates the dozens of
+			// identical 4-byte CUtlMemory<T>::Grow copies; unique at 12/26 tokens.
+			"E8 ? ? ? ? 8B 43 50 8D 70 01 EB 82 66 90 48 8B 6B 30 C7 43 68 00 00 00 00",
+			SigFollowMode::Relative
+#else
 			"E8 ? ? ? ? 8B 85 ? ? FF FF 83 C4 10 8B 40 44 89 85 ? ? FF FF 83 C0 01 E9",
 			SigFollowMode::Relative
+#endif
 		};
 	}
 
@@ -1799,9 +1961,21 @@ namespace Patterns
 		Pattern_t GetFriendGamePlayed
 		{
 			"IClientFriends::GetFriendGamePlayed",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: 17IClientFriendsMap RTTI vtable (0x30df258, 246 slots) slot 48
+			// = 0x1440f50.
+			// Proof 2: Writes IPC method hash 0x335bf1a2 (`C7 44 24 08 A2 F1 5B 33`)
+			// at 0x1440fc7, matching i386 0x1775660 (`C7 45 ? A2 F1 5B 33`).
+			// Unique at 6/20 tokens; PrologueUpwards walks to 0x1440f50.
+			"C7 44 24 08 A2 F1 5B 33 E8 ? ? ? ? 4C 89 E6 48 89 DF E8",
+			SigFollowMode::PrologueUpwards,
+			std::vector<uint8_t> { 0x55, 0x54, 0x41, 0x00, 0x00, 0x00, 0x20, 0xBA, 0xC9, 0x31, 0x55, 0x41 }
+#else
 			"C7 45 ? A2 F1 5B 33 6A 04 50 57 E8 ? ? ? ?",
 			SigFollowMode::PrologueUpwards,
 			std::vector<uint8_t> { 0x56, 0x57, 0xE5, 0x89, 0x55 }
+#endif
 		};
 	}
 
@@ -1863,10 +2037,24 @@ namespace Patterns
 		Pattern_t ServerResponded
 		{
 			"ISteamMatchmakingPingResponse::ServerResponded",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamui.so (build 57d58821).
+			// Proof 1: 15CGameInfoDialog RTTI vtable (0x28a0690) slot 5 = 0x18c13e0
+			// (followed by ServerFailedToRespond at slot 6 = 0x18c0fe0), matching
+			// i386 15CGameInfoDialog (0x27b6ef0) slot 5 = 0x189bb90.
+			// Proof 2: Checks [rdi+0x58] and server.m_NetAdr.m_unIP ([rbp+4]) equality.
+			// Unique at 17/61 tokens.
+			"41 55 41 54 55 53 48 89 FB 48 81 EC B8 00 00 00 8B 47 58 "
+			"64 48 8B 2C 25 28 00 00 00 48 89 AC 24 A8 00 00 00 48 89 F5 "
+			"85 C0 0F 84 ? ? ? ? 8B 45 04 85 C0 0F 84 ? ? ? ? 39 43 58",
+			SigFollowMode::None,
+			&g_modSteamUI
+#else
 			"8B 85 ? ? ? ? 8B 40 ? 85 C0 0F 84 ? ? ? ? 39 46",
 			SigFollowMode::PrologueUpwards,
 			std::vector<uint8_t> { 0x57, 0xe5, 0x89, 0x55 },
 			&g_modSteamUI
+#endif
 		};
 	}
 
@@ -1923,10 +2111,22 @@ namespace Patterns
 		Pattern_t BRouteMsgToJob
 		{
 			"CJobMgr::BRouteMsgToJob",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Contains assert strings "CJobMgr::BRouteMsgToJob() - continue job"
+			// and "CJobMgr::BRouteMsgToJob() - job" in ../common/jobmgr.cpp; 7 callers
+			// (matching i386 0x278a3a0's 6 callers).
+			// Proof 2: Identical 5-arg prologue saving (rdi, rsi, rdx, rcx, r8d) and
+			// comparing [pMsg+0x10] against [rax+0x68].  Unique at 24/51 tokens.
+			"55 48 89 E5 41 57 41 56 41 55 49 89 D5 41 54 53 48 81 EC 98 00 00 00 "
+			"48 89 BD 70 FF FF FF 48 89 B5 68 FF FF FF 48 89 8D 78 FF FF FF 44 89 85 64 FF FF FF",
+			SigFollowMode::None
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 83 EC 7C "
 			"8B 45 08 8B 4D 14 89 45 90 8B 45 0C 89 4D A0 89 45 88 "
 			"8B 45 10 89 45 A4 65 8B 0D 14 00 00",
 			SigFollowMode::None
+#endif
 		};
 	}
 
@@ -1935,8 +2135,20 @@ namespace Patterns
 		Pattern_t BYldRequestDepotManifest
 		{
 			"CDepotDownloadMgr::BYldRequestDepotManifest",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Contains assert strings "CDepotDownloadMgr::BYldRequestDepotManifest:
+			// same manifest %llu requested twice" and "...Failed to get manifest request code"
+			// in ../clientdll/depotdownloadmgr.cpp.
+			// Proof 2: Preserves (pthis, appId, depotId, manifestId, branch, arg20) ABI
+			// with `lea rax, [rcx - 1]; cmp rax, -3` manifestId guard.  Unique at 8/50 tokens.
+			"41 57 48 8D 41 FF 41 89 D7 41 56 41 55 41 54 4D 89 C4 55 48 89 CD 53 48 89 FB "
+			"48 81 EC 98 00 00 00 48 83 F8 FD 89 74 24 0C 64 4C 8B 34 25 28 00 00 00",
+			SigFollowMode::None
+#else
 			"55 B9 FD FF FF FF 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 53 83 EC 7C 8B 45 14 8B 55 18",
 			SigFollowMode::None
+#endif
 		};
 	}
 
