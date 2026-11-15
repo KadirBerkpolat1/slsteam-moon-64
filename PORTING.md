@@ -86,21 +86,48 @@ Measured with g++ on this host, not guessed:
 | `PackageInfo::SHA_1_Hash` | 0x1C | 0x1C |
 | `PackageInfo::AppIdVec` | 0x38 | 0x40 |
 | `PackageInfo::DepotIdVec` | 0x48 | 0x58 |
-| `CNetPacket` | 0x20 | 0x20 |
+| `CNetPacket` | 0x20 | 0x28 |
 
 `CServerPipe`'s 64-bit offsets come from AceSLS's reverse engineering, not from
 the 2026-10-22 client on this machine, so `plausibleServerPipe()` checks the pid
 is in a human range before anything keys off it. `PackageInfo`'s fixed-width
 leading fields mean `Status`/`SHA_1_Hash` do not move at all; only the two
-vectors shift. `CNetPacket` is a raw `uint8_t[0x20]` overlay and is
-arch-independent.
+vectors shift.
 
-### libraryremoval is x86-32 only
+`CNetPacket` is a raw byte overlay whose field offsets depend on the arch
+(`src/sdk/CNetPacket.hpp`). x86_64 carries 64-bit pointers: `m_pubData` at
++0x10, `m_cubData` at +0x18 and `m_pubOriginalData` at +0x20, 0x28 in total
+(measured on steamrt64 `steamclient.so` build `a57ea463`). i386 keeps the classic
++0x4 / +0x8 / +0x10 layout, 0x20 in total. `detectLayout()` probes field shifts
+`{0, 8}` on i386, where a beta client moved every field by +8, but only `{0}`
+under `__x86_64__`.
 
-`deriveOwnershipOffset()` decodes `8B /r` (mod=01) from the x86-32 SteamUI
-instruction stream. On x86_64 that decoder rejects every instruction, so
-`setup()` reports the capability unavailable and installs no detour. The
-feature is off, not wrong.
+### libraryremoval: the ownership offset differs by arch
+
+LibraryRemoval runs on both arches. `setup()` recovers the ownership-flags
+offset from the instruction SteamUI's `FillInAppOverview` uses to read it, never
+from a layout constant, because `CSteamApp` widens with the pointer size:
+**0x18 on i386, 0x1c on x86_64**.
+
+- i386: `deriveOwnershipOffset()` accepts only `8B /r` with mod=01, reg=eax and
+  base ecx or edx (`8B 41 disp8` / `8B 42 disp8`).
+- x86_64: `deriveOwnershipOffset64()` accepts an optional REX prefix that may
+  only select the base (W=1 or R=1 is rejected: `(instruction[0] & 0x0C) != 0`),
+  then `8B /r` with mod=01 and reg=edx. It refuses a SIB byte (rm=100) and
+  `[rbp/r13+disp8]` (rm=101), sign-extends the disp8 and rejects a zero or
+  negative displacement. On steamrt64 `steamui.so` build `57d58821` the read is
+  `41 8B 56 1C` (`mov edx,[r14+0x1c]`).
+
+Both decoders also reject a displacement above 0x100 or one that is not 4-byte
+aligned. Measured live with the LD_AUDIT harness against the real steamrt64
+`steamclient.so` and `steamui.so`: both detours install and the log reports
+`LibraryRemoval: SteamUI queue ready (ownership offset=0x1c)`.
+
+Keep both decoders strict. The feature writes zero into whatever field the
+offset resolves to, so a decoder that accepted the read of a neighbouring field
+would silently zero that field instead. An unrecognised read must keep failing
+closed: `setup()` then reports the capability unavailable and installs no
+detour.
 
 ## Distribution floor — read this before shipping a binary
 
