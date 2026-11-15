@@ -154,7 +154,7 @@ echo "==> symbol floor: SLSsteam.so GLIBC_$glibc_floor GLIBCXX_$glibcxx_floor CX
 echo "==> symbol floor: netsock64.so $ns_floor"
 
 # --- 2. load check on the floor image ---------------------------------------
-load_checked="not measured (--no-load-check)"
+load_verdict="load check skipped (--no-load-check): neither object was load-tested on any image"
 if [ "$LOAD_CHECK" = 1 ]; then
 	echo "==> [2/4] LD_AUDIT load check under $FLOOR_IMAGE"
 	cache="${XDG_CACHE_HOME:-$HOME/.cache}/slsteam-moon/loadcheck/$(printf '%s' "$FLOOR_IMAGE" | tr -c 'A-Za-z0-9_.-' '-')"
@@ -183,7 +183,7 @@ if [ "$LOAD_CHECK" = 1 ]; then
 			*) die "$FLOOR_IMAGE ld.so did not accept $name as an audit module: $lc_head $lc_msg" ;;
 		esac
 	done
-	load_checked="$FLOOR_IMAGE@$(cat "$cache/digest") (glibc $lc_glibc)"
+	load_verdict="both load as LD_AUDIT modules on: $FLOOR_IMAGE@$(cat "$cache/digest") (glibc $lc_glibc)"
 else
 	echo "==> [2/4] load check skipped"
 fi
@@ -365,5 +365,5 @@ echo "==> payload for $COMMIT in $OUT"
 (cd "$OUT" && sha256sum SLSsteam.so SLSsteam.so.sha256 netsock64.so netsock64.so.sha256 pattern-status.txt | sed 's/^/    /')
 echo "==> symbol floor: SLSsteam.so GLIBC_$glibc_floor GLIBCXX_$glibcxx_floor CXXABI_$cxxabi_floor"
 echo "==> symbol floor: netsock64.so $ns_floor"
-echo "==> both load as LD_AUDIT modules on: $load_checked"
+echo "==> $load_verdict"
 echo "==> pattern table: $(m resolved)/$(m required) required, pending=$(m pending), runipcframe_tail=$(m runipcframe_tail), on steamclient $(m steamclient_build_id)"
