@@ -303,6 +303,11 @@ void checkI386(
 		"55 89 E5 57 56 53 81 EC DC 00 00 00 89 85 50 FF FF FF 8B 45 10 "
 		"89 85 40 FF FF FF 8B 45 08 8B 40 04",
 		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::ThreadedReadFromDisk",
+		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 0C 11 00 00 8B 45 08 "
+		"89 85 0C EF FF FF",
+		source);
 }
 
 void checkX86_64(
@@ -396,6 +401,10 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "CDepotDownloadMgr::EvaluateConfigChanges",
 		"55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC ? ? 00 00 89 95 ? ? FF FF 8B 57 08 48 89 B5 ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8 31 C0 41 89 D4 41 83 E4 01 75 ? 83 BF ? ? 00 00 19",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::ThreadedReadFromDisk",
+		"55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 88 11 00 00 48 89 BD ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8",
 		source);
 }
 } // namespace

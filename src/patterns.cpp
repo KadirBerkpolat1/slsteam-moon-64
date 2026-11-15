@@ -1623,7 +1623,19 @@ namespace Patterns
 		Pattern_t ThreadedReadFromDisk
 		{
 			"CAppInfoCache::ThreadedReadFromDisk",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x102f4a0).
+			// Proof 1: Only function referencing "ThreadedReadFromDisk" (0x102f4e6) and
+			// "ThreadedReadFromDisk: loading appinfo cache from: %s" (0x102f545),
+			// matching i386 0x1162630.
+			// Proof 2: Allocates the 0x1188-byte parser stack frame (`sub rsp, 0x1188`),
+			// receives CAppInfoCache* in rdi, and is called by the CAppInfoCache reader
+			// thread entry 0x102fed0 (matching i386 0x1162630's caller 0x117ee70).
+			// Unique at 25/40 tokens.
+			"55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 88 11 00 00 48 89 BD ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8",
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 0C 11 00 00 8B 45 08 89 85 0C EF FF FF",
+#endif
 			SigFollowMode::None
 		};
 		// Instruction site at RVA 0x0186C929: cmp byte ptr [esi+disp8],0
