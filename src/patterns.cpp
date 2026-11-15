@@ -1445,6 +1445,19 @@ namespace Patterns
 		Pattern_t ProcessPendingLicenseUpdates
 		{
 			"CUser::ProcessPendingLicenseUpdates",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Reads CUser::m_vecPendingLicenses (+0x2588, m_Size at +0x2598,
+			// confirmed by "m_vecPendingLicenses" in CUser::ValidateStatics 0x186bdd3),
+			// iterates PendingLicense_t entries skipping -1, and calls 0x102e680
+			// (CAppInfoCache::GetOrAddAppData) checking [rax+0x18] == 3 (i386 0x1a0d7a0).
+			// Proof 2: Single external caller (0x187bca0, matching i386 0x1a1c480) and
+			// calls 0x184a260 ("17LicensesUpdated_t" notifier), 0x102e680, 0x10282e0,
+			// 0x1850700, 0x18478c0.
+			// Masks m_vecPendingLicenses low displacement byte, jle target, and RIP disp32.
+			// Unique at 14/54 tokens.
+			"41 57 48 89 F8 41 56 41 55 41 54 55 53 48 83 EC 28 8B 97 ? 25 00 00 48 89 7C 24 18 85 D2 0F 8E ? ? ? ? 48 05 ? 25 00 00 48 89 44 24 08 4C 8D 25 ? ? ? ?",
+#else
 			// The trailing `lea eax,[ebx+disp32]` reaches a data symbol through
 			// the PIC base, so its displacement tracks the GOT layout and moves
 			// on an unrelated client change (0x3B314 -> 0x3B714 between the
@@ -1458,6 +1471,7 @@ namespace Patterns
 			// 0x1C high byte stays pinned) -- the relaxed form keeps one module
 			// match while self-healing across that layout drift.
 			"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 2C 8B 44 24 40 8B 88 ? 1C 00 00 85 C9 0F 8E ? ? ? ? 05 ? 1C 00 00 89 44 24 18 8D 83 ? ? ? ? 8B 30",
+#endif
 			SigFollowMode::None
 		};
 		// CUser::<broadcast LicensesUpdated_t>(CUser* this)

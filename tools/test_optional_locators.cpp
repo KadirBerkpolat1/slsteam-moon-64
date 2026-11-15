@@ -278,10 +278,10 @@ void checkX86_64(
 	const std::string& ui,
 	const std::string& source)
 {
-	expect(false,
-	       "CUser::ProcessPendingLicenseUpdates: not ported to x86_64 "
-	       "(degrades runtime license refresh in PackagePatch, so adding a "
-	       "game needs a Steam restart)");
+	(void)resolveUnique(
+		client, "CUser::ProcessPendingLicenseUpdates",
+		"41 57 48 89 F8 41 56 41 55 41 54 55 53 48 83 EC 28 8B 97 ? 25 00 00 48 89 7C 24 18 85 D2 0F 8E ? ? ? ? 48 05 ? 25 00 00 48 89 44 24 08 4C 8D 25 ? ? ? ?",
+		source);
 	(void)resolveUnique(
 		client, "CCMInterface::RecvPkt",
 		"41 57 41 56 41 55 41 54 49 89 FC 55 53 48 89 F3 48 81 EC ? ? 00 00 48 8B 2D ? ? ? ? 64 48 8B 04 25 28 00 00 00 48 89 84 24 ? ? 00 00 31 C0",
