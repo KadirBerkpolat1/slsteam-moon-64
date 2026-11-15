@@ -2,6 +2,9 @@
 # Host build implementation. Invoked by scripts/build.sh --host.
 # Compiles in place using the host's toolchain. Fast for development;
 # binary glibc minimum equals your system's glibc.
+#
+# BUILD_TARGETS (env) narrows the make goals, e.g. to the two LD_AUDIT-loaded
+# objects when the image cannot build the host-only pattern-refresh helper.
 
 set -euo pipefail
 
@@ -126,5 +129,6 @@ case "$ARCH" in
 esac
 
 make clean
-make ARCH="$ARCH"
-echo "==> built ($ARCH): bin/SLSsteam.so, bin/library-inject.so, bin/pattern-refresh"
+# shellcheck disable=SC2086 # BUILD_TARGETS is a space-separated goal list
+make ARCH="$ARCH" ${BUILD_TARGETS:-}
+echo "==> built ($ARCH): ${BUILD_TARGETS:-bin/SLSsteam.so bin/library-inject.so bin/pattern-refresh}"
