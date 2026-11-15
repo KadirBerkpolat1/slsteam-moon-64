@@ -29,6 +29,24 @@ inline bool looksLikeSettingsReceiver(const uint8_t* code, std::size_t len)
 	return true;
 }
 
+inline bool looksLikeSettingsReceiver64(const uint8_t* code, std::size_t len)
+{
+	static constexpr int expected[] = {
+		0x41, 0x57, 0x41, 0x56, 0x45, 0x89, 0xc6,
+		0x41, 0x55, 0x49, 0x89, 0xf5,
+		0x41, 0x54, 0x41, 0x89, 0xd4,
+		0x55, 0x48, 0x89, 0xfd, 0x53, 0x48, 0x89, 0xcb,
+		0x48, 0x81, 0xec,   -1,   -1, 0x00, 0x00,
+	};
+	constexpr std::size_t expectedLen = sizeof(expected) / sizeof(expected[0]);
+	if (!code || len < expectedLen) return false;
+	for (std::size_t i = 0; i < expectedLen; ++i)
+	{
+		if (expected[i] >= 0 && code[i] != expected[i]) return false;
+	}
+	return true;
+}
+
 namespace Wire
 {
 

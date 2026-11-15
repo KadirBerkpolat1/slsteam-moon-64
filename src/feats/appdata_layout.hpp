@@ -164,4 +164,64 @@ inline std::optional<Layout> derive(
 		static_cast<std::uint32_t>(*sha)
 	};
 }
+
+inline std::optional<std::int64_t> directMovzxByteDisplacement(
+	std::span<const std::uint8_t> instruction
+) noexcept
+{
+	std::size_t pos = 0;
+	if (!instruction.empty() && (instruction[0] & 0xF0) == 0x40)
+		++pos;
+	if (pos + 3 > instruction.size() ||
+		instruction[pos] != 0x0F || instruction[pos + 1] != 0xB6)
+	{
+		return std::nullopt;
+	}
+	const std::uint8_t modrm = instruction[pos + 2];
+	const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6);
+	const std::uint8_t rm = static_cast<std::uint8_t>(modrm & 0x07);
+	if ((mod != 1 && mod != 2) || rm == 4)
+		return std::nullopt;
+	const std::size_t width = mod == 1 ? 1 : 4;
+	return detail::readDisplacement(instruction, pos + 3, width);
+}
+
+inline std::optional<std::int64_t> directCmp64Displacement(
+	std::span<const std::uint8_t> instruction
+) noexcept
+{
+	if (instruction.size() < 3 || (instruction[0] & 0xF8) != 0x48 ||
+		(instruction[1] != 0x39 && instruction[1] != 0x3B))
+	{
+		return std::nullopt;
+	}
+	const std::uint8_t modrm = instruction[2];
+	const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6);
+	const std::uint8_t rm = static_cast<std::uint8_t>(modrm & 0x07);
+	if ((mod != 1 && mod != 2) || rm == 4)
+		return std::nullopt;
+	const std::size_t width = mod == 1 ? 1 : 4;
+	return detail::readDisplacement(instruction, 3, width);
+}
+
+inline std::optional<Layout> derive64(
+	std::span<const std::uint8_t> skipInstruction,
+	std::span<const std::uint8_t> shaInstruction
+) noexcept
+{
+	const auto skip = directMovzxByteDisplacement(skipInstruction);
+	const auto sha = directCmp64Displacement(shaInstruction);
+	if (!skip.has_value() || !sha.has_value() ||
+		!detail::inBounds(*skip, 1) ||
+		!detail::inBounds(*sha, detail::kShaBytes) ||
+		detail::overlaps(*skip, 1, *sha, detail::kShaBytes))
+	{
+		return std::nullopt;
+	}
+
+	return Layout{
+		static_cast<std::uint32_t>(*skip),
+		static_cast<std::uint32_t>(*sha)
+	};
+}
 }

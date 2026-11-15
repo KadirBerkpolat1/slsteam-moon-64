@@ -85,6 +85,7 @@ bool validCodeRange(lm_address_t address, std::size_t size) noexcept
 	return size <= segment.end - address;
 }
 
+#if !defined(__x86_64__)
 bool captureBaselineProtection(
 	lm_address_t address,
 	std::size_t size,
@@ -103,12 +104,14 @@ bool captureBaselineProtection(
 	protection = segment.prot;
 	return true;
 }
+#endif
 
 bool validPattern(const Pattern_t& pattern, std::size_t bytes) noexcept
 {
 	return validCodeRange(pattern.address, bytes);
 }
 
+#if !defined(__x86_64__)
 std::uint32_t readU32(const std::uint8_t* bytes) noexcept
 {
 	return static_cast<std::uint32_t>(bytes[0]) |
@@ -164,6 +167,7 @@ bool buildRel32Jump(
 	output[4] = static_cast<std::uint8_t>(encoded >> 24);
 	return true;
 }
+#endif
 
 bool readExact(
 	lm_address_t address,
@@ -175,6 +179,7 @@ bool readExact(
 		LM_ReadMemory(address, output, size) == size;
 }
 
+#if !defined(__x86_64__)
 bool sameBytes(
 	const std::uint8_t* left,
 	const std::uint8_t* right,
@@ -391,6 +396,7 @@ AppInfoState::ByteAccess targetAccess() noexcept
 	return AppInfoState::ByteAccess{
 		&g_target, &targetRead, &targetWrite};
 }
+#endif
 
 bool releaseTrampolineLocked() noexcept
 {
@@ -481,6 +487,68 @@ bool installLocked(Store& store)
 	const Pattern_t& readPattern = Patterns::CAppInfoCache::ThreadedReadFromDisk;
 	const Pattern_t& skipPattern = Patterns::CAppInfoCache::SkipFlagReference;
 	const Pattern_t& shaPattern = Patterns::CAppInfoCache::ShaReference;
+#if defined(__x86_64__)
+	if (!validPattern(functionPattern, kDetourBytes) ||
+		!validPattern(skipPattern, 8) || !validPattern(shaPattern, 8))
+	{
+		discardBeforePatchLocked();
+		return false;
+	}
+
+	std::array<std::uint8_t, 8> skipInstruction{};
+	std::array<std::uint8_t, 8> shaInstruction{};
+	if (!readExact(skipPattern.address, skipInstruction.data(), skipInstruction.size()) ||
+		!readExact(shaPattern.address, shaInstruction.data(), shaInstruction.size()))
+	{
+		discardBeforePatchLocked();
+		return false;
+	}
+
+	const auto derived = AppDataLayout::derive64(skipInstruction, shaInstruction);
+	if (!derived.has_value())
+	{
+		discardBeforePatchLocked();
+		return false;
+	}
+
+	lm_address_t trampoline = LM_ADDRESS_BAD;
+	const lm_size_t hookSize = LM_HookCode(
+		functionPattern.address,
+		reinterpret_cast<lm_address_t>(&hkGetOrAddAppData),
+		&trampoline);
+	if (!hookSize || trampoline == LM_ADDRESS_BAD || trampoline == 0)
+	{
+		discardBeforePatchLocked();
+		return false;
+	}
+
+	g_target = functionPattern.address;
+	g_trampoline = trampoline;
+	g_hookSize = hookSize;
+	g_skipOffset.store(derived->skipOffset, std::memory_order_release);
+	g_shaOffset.store(derived->shaOffset, std::memory_order_release);
+	g_store.store(&store, std::memory_order_release);
+	g_original.store(
+		reinterpret_cast<GetOrAddAppDataPtr>(trampoline),
+		std::memory_order_release);
+	g_readFromDisk.store(
+		validPattern(readPattern, 1)
+			? reinterpret_cast<ReadFromDiskPtr>(readPattern.address)
+			: nullptr,
+		std::memory_order_release);
+	g_lifecycle.markProvisional(true);
+	if (g_lifecycle.activate())
+		return true;
+
+	g_store.store(nullptr, std::memory_order_release);
+	const bool unhooked = LM_UnhookCode(g_target, g_trampoline, g_hookSize);
+	if (unhooked)
+		g_trampoline = LM_ADDRESS_BAD;
+	(void)g_lifecycle.finishUnhook(unhooked);
+	if (unhooked)
+		discardAfterVerifiedRestoreLocked();
+	return false;
+#else
 	if (!validPattern(functionPattern, kDetourBytes) ||
 		!validPattern(skipPattern, 4) || !validPattern(shaPattern, 3))
 	{
@@ -588,7 +656,6 @@ bool installLocked(Store& store)
 	{
 		if (g_lifecycle.activate())
 			return true;
-
 		// Activation is a post-patch validation boundary.  Restore through the
 		// same checked helper before any trampoline is released.
 		const auto rollback = g_patch.restore(targetAccess());
@@ -610,7 +677,6 @@ bool installLocked(Store& store)
 		}
 		return false;
 	}
-
 	g_store.store(nullptr, std::memory_order_release);
 	if (result == AppInfoState::PatchResult::Restored ||
 		result == AppInfoState::PatchResult::Untouched)
@@ -627,6 +693,8 @@ bool installLocked(Store& store)
 		(void)g_lifecycle.finishUnhook(false);
 	}
 	return false;
+#endif
+
 }
 }
 
@@ -699,6 +767,19 @@ void remove() noexcept
 		while (!g_lifecycle.readersDrained())
 			std::this_thread::yield();
 
+#if defined(__x86_64__)
+		const bool unhooked = LM_UnhookCode(g_target, g_trampoline, g_hookSize);
+		if (unhooked)
+		{
+			g_trampoline = LM_ADDRESS_BAD;
+			(void)g_lifecycle.finishUnhook(true);
+			discardAfterVerifiedRestoreLocked();
+		}
+		else
+		{
+			(void)g_lifecycle.finishUnhook(false);
+		}
+#else
 		const PatchResult result = g_patch.restore(targetAccess());
 		if (result == PatchResult::Restored ||
 			result == PatchResult::Untouched)
@@ -716,6 +797,7 @@ void remove() noexcept
 			// later quiescent remove can retry restoration; managed work stays off.
 			(void)g_lifecycle.finishUnhook(false);
 		}
+#endif
 	}
 	catch (...)
 	{

@@ -183,5 +183,64 @@ namespace ReconcilePin
 			}
 			return found;
 		}
+
+		inline constexpr std::size_t kBuilderCallOff64 = 0x19e;
+
+		template <typename TargetExecutable>
+		inline long findBuilderCallRel32_64(
+			const std::uint8_t* code, std::size_t len, std::uintptr_t codeAddr,
+			std::size_t expectedOff, std::size_t window,
+			TargetExecutable targetExecutable)
+		{
+			const auto callTargetOk = [&](std::size_t off) -> bool
+			{
+				if (off + 9 > len) return false;
+				if (code[off] != 0xE8) return false;
+				if (code[off + 5] != 0x84 || code[off + 6] != 0xC0
+				    || code[off + 7] != 0x5A || code[off + 8] != 0x59)
+					return false;
+				std::int32_t rel = 0;
+				std::memcpy(&rel, code + off + 1, sizeof(rel));
+				const std::uintptr_t target = codeAddr + off + 5 +
+					static_cast<std::uintptr_t>(static_cast<std::intptr_t>(rel));
+				return targetExecutable(target);
+			};
+
+			if (callTargetOk(expectedOff)) return static_cast<long>(expectedOff);
+
+			long found = -1;
+			const std::size_t lo = expectedOff > window ? expectedOff - window : 0;
+			const std::size_t hi = expectedOff + window;
+			for (std::size_t off = lo; off <= hi; ++off)
+			{
+				if (off == expectedOff) continue;
+				if (!callTargetOk(off)) continue;
+				if (found != -1) return -1;
+				found = static_cast<long>(off);
+			}
+			return found;
+		}
+
+		inline long findCtxDepotVectorOffset64(
+			const std::uint8_t* code, std::size_t len)
+		{
+			// mov r11, [rbx+disp32] ; mov r14, r15 ; shl r14, 5 ; add r14, r11
+			static constexpr std::uint8_t kHead[] = {0x4C, 0x8B, 0x9B};
+			static constexpr std::uint8_t kTail[] = {
+				0x4D, 0x89, 0xFE, 0x49, 0xC1, 0xE6, 0x05, 0x4D, 0x01, 0xDE};
+			long found = -1;
+			for (std::size_t off = 0; off + 7 + sizeof(kTail) <= len; ++off)
+			{
+				if (std::memcmp(code + off, kHead, sizeof(kHead)) != 0) continue;
+				if (std::memcmp(code + off + 7, kTail, sizeof(kTail)) != 0) continue;
+				std::uint32_t disp = 0;
+				std::memcpy(&disp, code + off + 3, sizeof(disp));
+				if (found != -1) return -1;
+				if (disp == 0 || disp % 8 != 0 || disp > kMaxCtxDepotVectorOff)
+					return -1;
+				found = static_cast<long>(disp);
+			}
+			return found;
+		}
 	}
 }

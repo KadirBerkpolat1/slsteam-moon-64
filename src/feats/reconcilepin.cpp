@@ -31,8 +31,12 @@ namespace
 	// pointer regparm(1) keeps EAX intact across the call so the relocated
 	// prologue's `mov %eax,-0xb0(%ebp)` reads the right anchor.  (Prologue is a
 	// plain `push ebp`, not a get_pc_thunk -> no fixPICThunkCall.)
+#if defined(__x86_64__)
+	typedef void* (*ReconFn_t)(void* ctx, void* mgr, uint32_t a2);
+#else
 	typedef void* (__attribute__((regparm(1))) *ReconFn_t)(
 	    void* mgr, void* ctx, void* a1, void* a2);
+#endif
 
 	ReconFn_t    g_orig = nullptr;
 	lm_address_t g_addr = LM_ADDRESS_BAD;
@@ -44,6 +48,12 @@ namespace
 	std::atomic<int> g_traceBudget{400};
 
 	// ctx layout (confirmed live on build cfe99f0c).
+#if defined(__x86_64__)
+	constexpr size_t kCtxFlagsOff = 0x08;
+	constexpr size_t kCtxAppIdOff = 0x0c;
+	size_t g_ctxDepotVecOff = 0;
+	constexpr size_t kCtxVecCountOff = 0x10;
+#else
 	constexpr size_t kCtxFlagsOff = 0x04;
 	constexpr size_t kCtxAppIdOff = 0x08;
 	// The depot CUtlVector inside ctx moves when Steam grows the context
@@ -52,7 +62,7 @@ namespace
 	// stays off instead of rewriting whatever field now sits at a stale offset.
 	size_t g_ctxDepotVecOff = 0;
 	constexpr size_t kCtxVecCountOff = 0x0c;  // CUtlVector size, after base
-	// flag bit marking the TARGET/appinfo ctx (vs the ACTIVE/installed ctx).
+#endif
 	constexpr uint32_t kFlagTargetSide = 0x8;
 	// DepotEntry: DepotId @ +0, ManifestGid @ +0x8, Size @ +0x10,
 	// stride 0x20.
@@ -192,7 +202,11 @@ namespace
 	//
 	// CUtlVector<DepotEntry>: element base @ +0x0, count @ +0xc.
 	constexpr size_t kVecBaseOff = 0x00;
+#if defined(__x86_64__)
+	constexpr size_t kVecCountOff = 0x10;
+#else
 	constexpr size_t kVecCountOff = 0x0c;
+#endif
 
 	// Whether an address lands in an executable segment. Used to validate a
 	// scanned near-call target so drift recovery can never pick a byte whose
@@ -255,7 +269,20 @@ namespace
 	bool installBuildTargetHook(lm_address_t evalAddr)
 	{
 		const auto* fn = reinterpret_cast<const uint8_t*>(evalAddr);
-		const size_t scanLen = ReconcilePin::detail::kBuilderCallOff
+#if defined(__x86_64__)
+		constexpr size_t kExpectedCallOff = ReconcilePin::detail::kBuilderCallOff64;
+		const size_t scanLen = kExpectedCallOff
+		                     + ReconcilePin::detail::kBuilderCallWindow + 9;
+		const long callOff = ReconcilePin::detail::findBuilderCallRel32_64(
+		    fn, scanLen, reinterpret_cast<uintptr_t>(fn),
+		    kExpectedCallOff,
+		    ReconcilePin::detail::kBuilderCallWindow,
+		    [](uintptr_t target) {
+			    return executableAddress(static_cast<lm_address_t>(target));
+		    });
+#else
+		constexpr size_t kExpectedCallOff = ReconcilePin::detail::kBuilderCallOff;
+		const size_t scanLen = kExpectedCallOff
 		                     + ReconcilePin::detail::kBuilderCallWindow + 8;
 		// The RE'd call offset drifts when Steam recompiles the function (the
 		// beta client moved it), so locate the call instead of trusting a fixed
@@ -264,17 +291,18 @@ namespace
 		// degrades to the ctx-vector patch alone, exactly as before.
 		const long callOff = ReconcilePin::detail::findBuilderCallRel32(
 		    fn, scanLen, reinterpret_cast<uintptr_t>(fn),
-		    ReconcilePin::detail::kBuilderCallOff,
+		    kExpectedCallOff,
 		    ReconcilePin::detail::kBuilderCallWindow,
 		    [](uintptr_t target) {
 			    return executableAddress(static_cast<lm_address_t>(target));
 		    });
+#endif
 		if (callOff < 0)
 		{
 			g_pLog->warn("ReconcilePin: target-vector builder call not located "
 			             "near +0x%zx (byte 0x%02x); target-local fix disabled\n",
-			             ReconcilePin::detail::kBuilderCallOff,
-			             fn[ReconcilePin::detail::kBuilderCallOff]);
+			             kExpectedCallOff,
+			             fn[kExpectedCallOff]);
 			return false;
 		}
 		const auto* site = fn + callOff;
@@ -327,8 +355,12 @@ namespace
 		return true;
 	}
 
+#if defined(__x86_64__)
+	void* hkEvaluate(void* ctx, void* mgr, uint32_t a2)
+#else
 	__attribute__((regparm(1)))
 	void* hkEvaluate(void* mgr, void* ctx, void* a1, void* a2)
+#endif
 	{
 		if (ctx)
 		{
@@ -346,7 +378,11 @@ namespace
 			}
 			patchTargetCtx(ctx, appId, flags);
 		}
+#if defined(__x86_64__)
+		return g_orig(ctx, mgr, a2);
+#else
 		return g_orig(mgr, ctx, a1, a2);
+#endif
 	}
 }
 
@@ -382,7 +418,11 @@ namespace ReconcilePin
 		if (LM_FindSegment(pat.address, &segment) && segment.end > pat.address)
 		{
 			const size_t readable = static_cast<size_t>(segment.end - pat.address);
+#if defined(__x86_64__)
+			const long vecOff = ReconcilePin::detail::findCtxDepotVectorOffset64(
+#else
 			const long vecOff = ReconcilePin::detail::findCtxDepotVectorOffset(
+#endif
 			    reinterpret_cast<const uint8_t*>(pat.address),
 			    readable < ReconcilePin::detail::kCtxDepotLoopScanLen
 			        ? readable : ReconcilePin::detail::kCtxDepotLoopScanLen);

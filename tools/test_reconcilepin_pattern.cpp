@@ -59,27 +59,59 @@ static std::vector<size_t> findMatches(const std::string& image,
 
 // File-offset range of the executable PT_LOAD segment.  Code-relative call
 // targets stay consistent in file-offset space within that segment.
-static bool executableRange(const std::string& image, size_t& begin, size_t& end)
+static bool executableRange(
+	const std::string& image, bool& is64, size_t& begin, size_t& end)
 {
 	if (image.size() < 0x34 || image.compare(0, 4, "\x7f" "ELF") != 0) return false;
-	uint32_t phoff = 0;
-	uint16_t phnum = 0;
-	std::memcpy(&phoff, image.data() + 0x1c, sizeof(phoff));
-	std::memcpy(&phnum, image.data() + 0x2c, sizeof(phnum));
-	for (uint16_t i = 0; i < phnum; ++i)
+	const uint8_t cls = static_cast<uint8_t>(image[4]);
+	if (cls == 1)
 	{
-		const size_t ph = phoff + static_cast<size_t>(i) * 32;
-		if (ph + 32 > image.size()) return false;
-		uint32_t type = 0, offset = 0, filesz = 0, flags = 0;
-		std::memcpy(&type, image.data() + ph, 4);
-		std::memcpy(&offset, image.data() + ph + 4, 4);
-		std::memcpy(&filesz, image.data() + ph + 16, 4);
-		std::memcpy(&flags, image.data() + ph + 24, 4);
-		if (type == 1 && (flags & 1))
+		is64 = false;
+		uint32_t phoff = 0;
+		uint16_t phnum = 0;
+		std::memcpy(&phoff, image.data() + 0x1c, sizeof(phoff));
+		std::memcpy(&phnum, image.data() + 0x2c, sizeof(phnum));
+		for (uint16_t i = 0; i < phnum; ++i)
 		{
-			begin = offset;
-			end = static_cast<size_t>(offset) + filesz;
-			return end <= image.size();
+			const size_t ph = phoff + static_cast<size_t>(i) * 32;
+			if (ph + 32 > image.size()) return false;
+			uint32_t type = 0, offset = 0, filesz = 0, flags = 0;
+			std::memcpy(&type, image.data() + ph, 4);
+			std::memcpy(&offset, image.data() + ph + 4, 4);
+			std::memcpy(&filesz, image.data() + ph + 16, 4);
+			std::memcpy(&flags, image.data() + ph + 24, 4);
+			if (type == 1 && (flags & 1))
+			{
+				begin = offset;
+				end = static_cast<size_t>(offset) + filesz;
+				return end <= image.size();
+			}
+		}
+		return false;
+	}
+	if (cls == 2 && image.size() >= 0x40)
+	{
+		is64 = true;
+		uint64_t phoff = 0;
+		uint16_t phnum = 0;
+		std::memcpy(&phoff, image.data() + 0x20, sizeof(phoff));
+		std::memcpy(&phnum, image.data() + 0x38, sizeof(phnum));
+		for (uint16_t i = 0; i < phnum; ++i)
+		{
+			const size_t ph = static_cast<size_t>(phoff) + static_cast<size_t>(i) * 56;
+			if (ph + 56 > image.size()) return false;
+			uint32_t type = 0, flags = 0;
+			uint64_t offset = 0, filesz = 0;
+			std::memcpy(&type, image.data() + ph, 4);
+			std::memcpy(&flags, image.data() + ph + 4, 4);
+			std::memcpy(&offset, image.data() + ph + 8, 8);
+			std::memcpy(&filesz, image.data() + ph + 32, 8);
+			if (type == 1 && (flags & 1))
+			{
+				begin = static_cast<size_t>(offset);
+				end = static_cast<size_t>(offset + filesz);
+				return end <= image.size();
+			}
 		}
 	}
 	return false;
@@ -100,15 +132,17 @@ int main(int argc, char** argv)
 	}
 	const std::string image{std::istreambuf_iterator<char>(input),
 	                        std::istreambuf_iterator<char>()};
+	bool is64 = false;
 	size_t textBegin = 0, textEnd = 0;
-	if (!executableRange(image, textBegin, textEnd))
+	if (!executableRange(image, is64, textBegin, textEnd))
 	{
 		std::cerr << "steamclient has no executable segment\n";
 		return 1;
 	}
-	const auto evaluates = findMatches(image, parse(
-	    "55 89 E5 57 56 53 81 EC DC 00 00 00 89 85 50 FF FF FF "
-	    "8B 45 10 89 85 40 FF FF FF 8B 45 08 8B 40 04"));
+	const char* sig = is64
+		? "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC ? ? 00 00 89 95 ? ? FF FF 8B 57 08 48 89 B5 ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8 31 C0 41 89 D4 41 83 E4 01 75 ? 83 BF ? ? 00 00 19"
+		: "55 89 E5 57 56 53 81 EC DC 00 00 00 89 85 50 FF FF FF 8B 45 10 89 85 40 FF FF FF 8B 45 08 8B 40 04";
+	const auto evaluates = findMatches(image, parse(sig));
 	if (evaluates.size() != 1)
 	{
 		std::cerr << "expected one EvaluateConfigChanges; found "
@@ -120,20 +154,35 @@ int main(int argc, char** argv)
 	const size_t readable = textEnd - eval;
 
 	namespace d = ReconcilePin::detail;
-	const size_t scanLen = d::kBuilderCallOff + d::kBuilderCallWindow + 8;
-	const long call = d::findBuilderCallRel32(
-	    code, scanLen < readable ? scanLen : readable, eval,
-	    d::kBuilderCallOff, d::kBuilderCallWindow,
-	    [&](std::uintptr_t target) { return target >= textBegin && target < textEnd; });
+	long call = -1;
+	long depots = -1;
+	if (is64)
+	{
+		const size_t scanLen = d::kBuilderCallOff64 + d::kBuilderCallWindow + 9;
+		call = d::findBuilderCallRel32_64(
+		    code, scanLen < readable ? scanLen : readable, eval,
+		    d::kBuilderCallOff64, d::kBuilderCallWindow,
+		    [&](std::uintptr_t target) { return target >= textBegin && target < textEnd; });
+		const size_t loopLen = d::kCtxDepotLoopScanLen;
+		depots = d::findCtxDepotVectorOffset64(
+		    code, loopLen < readable ? loopLen : readable);
+	}
+	else
+	{
+		const size_t scanLen = d::kBuilderCallOff + d::kBuilderCallWindow + 8;
+		call = d::findBuilderCallRel32(
+		    code, scanLen < readable ? scanLen : readable, eval,
+		    d::kBuilderCallOff, d::kBuilderCallWindow,
+		    [&](std::uintptr_t target) { return target >= textBegin && target < textEnd; });
+		const size_t loopLen = d::kCtxDepotLoopScanLen;
+		depots = d::findCtxDepotVectorOffset(
+		    code, loopLen < readable ? loopLen : readable);
+	}
 	if (call < 0)
 	{
 		std::cerr << "target-vector builder call not located\n";
 		return 1;
 	}
-
-	const size_t loopLen = d::kCtxDepotLoopScanLen;
-	const long depots = d::findCtxDepotVectorOffset(
-	    code, loopLen < readable ? loopLen : readable);
 	if (depots < 0)
 	{
 		std::cerr << "context depot-vector offset not decoded\n";

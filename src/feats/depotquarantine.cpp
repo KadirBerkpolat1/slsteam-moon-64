@@ -95,10 +95,18 @@ namespace
 	{
 		if (!context) return 0;
 		const auto bytes = reinterpret_cast<const uint8_t*>(context);
+#if defined(__x86_64__)
+		// Verified against steamrt64/steamclient.so (0x13a65db..0x13a65e6).
+		const auto owner = *reinterpret_cast<void* const*>(bytes + 0x10);
+		if (!owner) return 0;
+		const auto depot = *reinterpret_cast<void* const*>(
+		    reinterpret_cast<const uint8_t*>(owner) + 0x18);
+#else
 		const auto owner = *reinterpret_cast<void* const*>(bytes + 0x08);
 		if (!owner) return 0;
 		const auto depot = *reinterpret_cast<void* const*>(
 		    reinterpret_cast<const uint8_t*>(owner) + 0x0c);
+#endif
 		if (!depot) return 0;
 		return *reinterpret_cast<const uint32_t*>(depot);
 	}
@@ -106,10 +114,14 @@ namespace
 	uint64_t chunkFingerprint(const void* chunk)
 	{
 		if (!chunk) return 0;
-		// OnChunkUnpacked itself formats the 20-byte SHA at chunk+0x0c. Hashing
-		// it lets the policy distinguish separate failing chunks without copying
-		// or logging their identifiers.
+		// OnChunkUnpacked itself formats the 20-byte SHA (chunk+0x0c on i386,
+		// chunk+0x10 on x86_64). Hashing it lets the policy distinguish separate
+		// failing chunks without copying or logging their identifiers.
+#if defined(__x86_64__)
+		const auto sha = reinterpret_cast<const uint8_t*>(chunk) + 0x10;
+#else
 		const auto sha = reinterpret_cast<const uint8_t*>(chunk) + 0x0c;
+#endif
 		uint64_t hash = 14695981039346656037ULL;
 		for (std::size_t i = 0; i < 20; ++i)
 		{

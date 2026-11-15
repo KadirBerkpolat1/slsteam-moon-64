@@ -927,7 +927,21 @@ namespace Patterns
 	Pattern_t ParentalSettingsReceived
 	{
 		"ParentalSettingsReceived",
+#if defined(__x86_64__)
+		// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x186db40).
+		// Proof 1: Verifies RSA signature via 0x24e3ec0 (shared with
+		// ParentalSignatureCheck 0x186d995), parses serialized ParentalSettings
+		// protobuf (0x28ba75e), and reads CUser SteamID account ID [rbp+0x242]
+		// (same +0x242 offset as ParentalSignatureCheck).
+		// Proof 2: Exact 4 external callers (0x119cc90, 0x186df70, 0x186dfd0,
+		// 0x186e370), matching i386 0x1a3d520's 4 callers (0x12eb680, 0x1a3d110,
+		// 0x1a3db40, 0x1a3dd90), taking (instance, settings, settingsLen,
+		// signature, signatureLen, a6, a7) in (rdi, rsi, edx, rcx, r8d, r9, [rsp+8]).
+		// Unique at 20/47 tokens.
+		"41 57 41 56 45 89 C6 41 55 49 89 F5 41 54 41 89 D4 55 48 89 FD 53 48 89 CB 48 81 EC ? ? 00 00 48 8D 15 ? ? ? ? 48 8B 84 24 ? ? 00 00",
+#else
 		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 00 02 00 00 8B 45 08 8B 55 1C 8B 7D 0C",
+#endif
 		SigFollowMode::None
 	};
 
@@ -1468,7 +1482,20 @@ namespace Patterns
 		Pattern_t MarkLicenseAsChanged
 		{
 			"CUser::MarkLicenseAsChanged",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x1849fc0).
+			// Proof 1: Hashes packageId (esi) with Murmur3 constants 0x85ebca6b and
+			// 0xc2b2ae35 into CUser::m_mapChangedLicenses (+0x2378, count +0x23bc,
+			// elements +0x23a8), the exact map read by CUser::NotifyLicensesUpdated
+			// (0x184a260), then looks up package in 0x1460 and marks apps via 0x102a9a0.
+			// Proof 2: Exact 3 external callers (0x1037240, 0x184a980, 0x18614e0),
+			// matching i386 0x1a0cd00's 3 external callers (0x115c870, 0x1a13a10,
+			// 0x1a14090), and takes (this, packageId, bool) in (rdi, esi, dl).
+			// Unique at 10/51 tokens.
+			"41 57 48 8D 87 ? 23 00 00 41 89 F7 41 56 41 55 41 54 55 53 48 83 EC 28 88 54 24 ? 8B 97 ? 23 00 00 89 74 24 ? 48 89 44 24 ? 85 D2 0F 84 ? ? ? ?",
+#else
 			"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 2C 8B 74 24 40 8B 44 24 48 8B BE ? ? 00 00 88 44 24 1C 8D 86 ? ? 00 00 89 44 24 0C 85 FF 0F 84 ? ? ? ?",
+#endif
 			SigFollowMode::None
 		};
 		// Current Linux i386 entry at RVA 0x0186C800.  Its cdecl receiver is
@@ -1551,7 +1578,19 @@ namespace Patterns
 		Pattern_t NotifyLicensesUpdated
 		{
 			"CUser::NotifyLicensesUpdated",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x184a260).
+			// Proof 1: References RTTI string "17LicensesUpdated_t" (at 0x184a29c) and
+			// posts callback id 0x7d (`mov esi, 0x7d`) via CSteamEngine::PostCallback
+			// (0x1071880), plus callback 0xf90be (at 0x184a446, matching i386).
+			// Proof 2: Called by CUser::ProcessPendingLicenseUpdates (0x1851250 at
+			// 0x1851501) and reads CUser::m_mapChangedLicenses (+0x23a8/+0x23bc/+0x23c0,
+			// shared with CUser::MarkLicenseAsChanged 0x1849fc0).
+			// Unique at 25/100 tokens.
+			"41 57 41 56 41 55 41 54 55 53 48 81 EC ? ? 00 00 44 8B 8F ? 23 00 00 48 89 7C 24 ? 64 48 8B 04 25 28 00 00 00 48 89 84 24 ? ? 00 00 31 C0 45 85 C9 0F 8E ? ? ? ? 48 8D 3D ? ? ? ? BE 7D 00 00 00 E8 ? ? ? ? 84 C0 0F 85 ? ? ? ? 48 8B 5C 24 ? 45 31 C0 B9 01 00 00 00 BE 7D 00 00 00",
+#else
 			"55 89 E5 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 81 EC BC 01 00 00 8B 45 08 8B ? ? 1B 00 00 89 9D 54 FE FF FF 85 ? 0F 8E ? ? ? ? 8D 83 ? ? ? ? 83 EC 08 6A 7D 50",
+#endif
 			SigFollowMode::None
 		};
 	}
@@ -1572,7 +1611,21 @@ namespace Patterns
 		Pattern_t GetOrAddAppData
 		{
 			"CAppInfoCache::GetOrAddAppData",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Direct RB-tree lookup + CAppData construction (0x1026280,
+			// matching i386 0x115f3a0) on CAppInfoCache+0x50, asserting
+			// "nAppID != k_uAppIdInvalid" / "../clientdll/appdatacache.cpp" (0xb47)
+			// when appID == 0 (`test ebp,ebp; je 0x102e538`).
+			// Proof 2: Called twice inside CUser::ProcessPendingLicenseUpdates
+			// (0x1851250 at 0x185132c and 0x18513a9/0x1851547 for appID 7) right
+			// after BlockOnInitialization (0x10282e0), returning CAppData* whose
+			// SHA ([rax+0x20..+0x34]) and skip flag ([rax+0x14]) are tested.
+			// Unique at 20/90 tokens.
+			"41 57 41 56 41 55 41 54 49 89 FC 55 89 F5 53 48 83 EC 18 48 8B 05 ? ? ? ? 64 48 8B 1C 25 28 00 00 00 48 89 5C 24 08 89 D3 8B 10 31 C0 85 D2 74 14 48 8D 3D ? ? ? ? 48 89 E2 BE 04 00 00 00 E8 ? ? ? ? 85 ED 48 89 04 24 0F 84 ? ? ? ? 49 63 44 24 68 83 F8 FF",
+#else
 			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 2C 8B 75 0C 8B 7D 10 89 45 D0 8B 80 ? ? 00 00 8B 00 85 C0 0F 85 ? ? ? ?",
+#endif
 			SigFollowMode::None
 		};
 		// CAppInfoCache::ThreadedReadFromDisk is Steam's own background cache
@@ -1584,7 +1637,19 @@ namespace Patterns
 		Pattern_t ThreadedReadFromDisk
 		{
 			"CAppInfoCache::ThreadedReadFromDisk",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x102f4a0).
+			// Proof 1: Only function referencing "ThreadedReadFromDisk" (0x102f4e6) and
+			// "ThreadedReadFromDisk: loading appinfo cache from: %s" (0x102f545),
+			// matching i386 0x1162630.
+			// Proof 2: Allocates the 0x1188-byte parser stack frame (`sub rsp, 0x1188`),
+			// receives CAppInfoCache* in rdi, and is called by the CAppInfoCache reader
+			// thread entry 0x102fed0 (matching i386 0x1162630's caller 0x117ee70).
+			// Unique at 25/40 tokens.
+			"55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 88 11 00 00 48 89 BD ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8",
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 0C 11 00 00 8B 45 08 89 85 0C EF FF FF",
+#endif
 			SigFollowMode::None
 		};
 		// Instruction site at RVA 0x0186C929: cmp byte ptr [esi+disp8],0
@@ -1594,7 +1659,20 @@ namespace Patterns
 		Pattern_t SkipFlagReference
 		{
 			"CAppInfoCache::SkipFlagReference",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, insn 0x1851361).
+			// Proof 1: Inside CUser::ProcessPendingLicenseUpdates (0x1851250), immediately
+			// after GetOrAddAppData (0x102e360 -> CAppData* in rax) and the 20-byte
+			// SHA comparison at +0x20..+0x34, reads [rax+0x14] (`movzx eax, byte ptr
+			// [rax+0x14]`) and ANDs it into the all-skipped flag (`and [rsp+0x17], al`).
+			// Proof 2: CAppData constructor (0x1026280) zero-initializes [rdi+0x14] as a
+			// word alongside +0x16, matching i386 CAppData ctor (0x115f3a0) zeroing
+			// [esi+0x10] alongside +0x12 (4-byte vptr growth shifts +0x10 -> +0x14).
+			// Unique in module.
+			"0F B6 40 14 49 83 C6 01 20 44 24 ? 45 39 77 50 7F ?",
+#else
 			"80 7E 10 00 0F 44 C8 88 4C 24 1E 8B 44 24 10 83 C7 01 3B 7D 44 8B 30 7C 9E",
+#endif
 			SigFollowMode::None
 		};
 		// Instruction site at RVA 0x0186C914: lea eax,[eax+disp8], using the
@@ -1604,7 +1682,20 @@ namespace Patterns
 		Pattern_t ShaReference
 		{
 			"CAppInfoCache::ShaReference",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, insn 0x185133b).
+			// Proof 1: Inside CUser::ProcessPendingLicenseUpdates (0x1851250), immediately
+			// after GetOrAddAppData (0x102e360 -> CAppData* in rax), compares the
+			// 20-byte SHA at [rax+0x20..+0x34] (`cmp [rax+0x20], rcx; cmp [rax+0x28],
+			// rsi; cmp [rax+0x30], edi`) before testing the skip flag at [rax+0x14].
+			// Proof 2: CAppData constructor (0x1026280) zero-initializes the 20-byte
+			// SHA at +0x20..+0x34 (qword +0x20, qword +0x28, dword +0x30), matching
+			// i386 CAppData ctor (0x115f3a0) zeroing +0x1c..+0x30.
+			// Unique in module.
+			"48 39 48 20 75 ? 48 8D 35 ? ? ? ? 48 8B 76 08 48 39 70 28 75 ? 48 8D 3D ? ? ? ? 8B 7F 10 39 78 30 75 ?",
+#else
 			"8D 40 1C 50 E8 ? ? ? ? 83 C4 10 85 C0 75 10 0F B6 4C 24 1E 80 7E 10 00 0F 44 C8 88 4C 24 1E",
+#endif
 			SigFollowMode::None
 		};
 	}
@@ -1931,14 +2022,39 @@ namespace Patterns
 		Pattern_t ProcessDepotManifest
 		{
 			"CDepotDownloadMgr::ProcessDepotManifest",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x1059d00).
+			// Proof 1: Only function referencing "%s/depotcache/%d_%llu.manifest"
+			// (at 0x1059ef3) and calling CDepotDownloadMgr::BYldRequestDepotManifest
+			// (0x1398b50), matching i386 0x117b010.
+			// Proof 2: Exact 4 external callers (0x105a1e0, 0x10e3d30, 0x11d41c0,
+			// 0x11d45a0), matching i386's 4 external callers (0x117b550, 0x12277e0,
+			// 0x132c080, 0x132e480), and inserts/looks up manifestId (r8) in
+			// [rdi+0x48] RB-tree ([rdi+0x60] root, [rdi+0x78] base).
+			// Unique at 20/57 tokens.
+			"41 57 41 56 41 89 CE 41 55 41 54 49 89 FC 55 53 4C 89 C3 48 83 EC 38 48 89 34 24 89 54 24 0C 4C 89 4C 24 10 64 48 8B 04 25 28 00 00 00 48 89 44 24 28 48 63 47 60 83 F8 FF",
+#else
 			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 4C 8B 55 1C 89 45 C0 8B 45 18 89 55 CC 89 45 C8",
+#endif
 			SigFollowMode::None
 		};
 
 		Pattern_t PrepareDepotDownload
 		{
 			"CDepotDownloadMgr::PrepareDepotDownload",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x105a1e0).
+			// Proof 1: Directly calls CDepotDownloadMgr::ProcessDepotManifest (0x1059d00
+			// at 0x105a20b), then looks up manifestId (r8) in [rbx+0x60]/[rbx+0x78]
+			// RB-tree and polls state [rbp+0x14] == 0x16 -> 1, matching i386 0x117b550.
+			// Proof 2: Exact 2 external callers (0x108b0b0 and 0x108b440, called by
+			// CDepotDownloadMgr::BuildDepotDependency 0x11d6040), matching i386
+			// 0x117b550's 2 external callers (0x11bd3b0, 0x11bd720).
+			// Unique at 25/55 tokens.
+			"41 57 41 56 41 55 41 54 55 53 48 89 FB 48 83 EC 78 48 89 74 24 08 89 4C 24 04 64 4C 8B 24 25 28 00 00 00 4C 89 64 24 68 4D 89 C4 E8 ? ? ? ? 48 63 43 60 83 F8 FF",
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 83 EC 60 8B 7D 08 8B 45 18 8B 55 1C FF 75 20 89 45 98 52 50 FF 75 14 89 55 9C FF 75 10 FF 75 0C 57 E8 ? ? ? ? 8B 47 4C 83 C4 20 83 F8 FF",
+#endif
 			SigFollowMode::None
 		};
 
@@ -1991,7 +2107,22 @@ namespace Patterns
 		Pattern_t OnChunkUnpackedStack
 		{
 			"CDepotDownloadMgr::OnChunkUnpacked[cdecl]",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x13b01f0).
+			// On x86_64 SysV there is no cdecl/regparm3 split; this hooks the live
+			// SysV OnChunkUnpacked implementation (the unreferenced sibling 0x13afea0
+			// has 0 callers and 0 relocations).
+			// Proof 1: Carries "OnChunkUnpacked", "unpacking bad chunk \"%s\" (%s)",
+			// and "Failed unpacking chunk \"%s\" from \"%s\" (%s)", reading 20-byte
+			// chunk SHA at [r14+0x10] and chunk index at [r14+0x3c].
+			// Proof 2: Called directly at 0x13b0b32 by 0x13b0af0 (20CWorkItemUnpackChunk
+			// vtable 0x30c8da0 slot 6), matching i386 0x1511cd0 -> 0x1522c00, with
+			// SysV (context, chunk, source, location, detail, unpackResult) args.
+			// Unique at 20/59 tokens.
+			"55 48 89 E5 41 57 41 56 49 89 F6 41 55 49 89 D5 41 54 41 89 CC 53 48 81 EC ? ? 00 00 48 8B 05 ? ? ? ? 48 89 BD ? ? FF FF 4C 89 85 ? ? FF FF 64 4C 8B 3C 25 28 00 00 00",
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 7C 04 00 00 8B 45 0C 8B 7D 08 89 85 90 FB FF FF 8B 45 10 89 85 8C FB FF FF",
+#endif
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CDepotDownloadMgr::OnChunkUnpackedStack"
@@ -2000,7 +2131,15 @@ namespace Patterns
 		Pattern_t OnChunkUnpackedReg
 		{
 			"CDepotDownloadMgr::OnChunkUnpacked[regparm3]",
+#if defined(__x86_64__)
+			// i386-ABI-only: x86_64 SysV has no regparm(3) calling-convention
+			// variant. The live SysV OnChunkUnpacked (0x13b01f0) is matched by
+			// OnChunkUnpackedStack above; optional = true keeps this permanently
+			// and harmlessly absent on x86_64.
+			"",
+#else
 			"55 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 89 C6 53 81 EC 7C 04 00 00 8B 45 0C 89 95 90 FB FF FF 89 8D 8C FB FF FF 89 85 94 FB FF FF",
+#endif
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CDepotDownloadMgr::OnChunkUnpackedReg"
@@ -2026,7 +2165,21 @@ namespace Patterns
 		Pattern_t EvaluateConfigChanges
 		{
 			"CDepotDownloadMgr::EvaluateConfigChanges",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x108eb70).
+			// Proof 1: Only function referencing "AppID %u %sconfig changed : added
+			// depots %s", "updated depots %s", and "removed depots %s" (at 0x108f6d5..
+			// 0x108f793), matching i386 0x11c460a.
+			// Proof 2: Exact 8 external callers (0x1049100, 0x104b160, 0x104b880,
+			// 0x108f9f0, 0x108fbf0, 0x1093760, 0x1107860, 0x11c36a0), matching i386's
+			// 8 callers; takes (ctx, mgr, a2) in (rdi, rsi, edx), reads ctx->flags
+			// (+0x08) and ctx->depots (+0xc0, stride 0x20), and calls the 8-arg
+			// target-vector builder 0x1052dc0 at +0x19e.
+			// Unique at 30/67 tokens.
+			"55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC ? ? 00 00 89 95 ? ? FF FF 8B 57 08 48 89 B5 ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8 31 C0 41 89 D4 41 83 E4 01 75 ? 83 BF ? ? 00 00 19",
+#else
 			"55 89 E5 57 56 53 81 EC DC 00 00 00 89 85 50 FF FF FF 8B 45 10 89 85 40 FF FF FF 8B 45 08 8B 40 04",
+#endif
 			SigFollowMode::None
 		};
 	}

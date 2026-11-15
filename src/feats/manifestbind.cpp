@@ -77,8 +77,8 @@ namespace
 	// first instruction (in the relocated tramp -> fixPICThunkCall repairs
 	// it); PrepareDepotDownload's is at +5 (not relocated -> fixPICThunkCall
 	// is a harmless no-op).
-	using DepotFn_t = void*(*)(void*, uint32_t, uint32_t, uint32_t,
-	                           uint64_t, uint32_t);
+	using DepotFn_t = void*(*)(void*, uintptr_t, uint32_t, uint32_t,
+	                           uint64_t, uintptr_t);
 
 	// FUNC_1141 / CDepotDownloadMgr::BuildDepotDependency — the install-plan
 	// consumer.  cdecl, 4 dwords:
@@ -654,8 +654,8 @@ namespace
 		    depotId, manifestId, decision.gid, consumeFrozen);
 	}
 
-	void* hkProcessDepot(void* ctx, uint32_t a0C, uint32_t appId,
-	                     uint32_t depotId, uint64_t manifestId, uint32_t a20)
+	void* hkProcessDepot(void* ctx, uintptr_t a0C, uint32_t appId,
+	                     uint32_t depotId, uint64_t manifestId, uintptr_t a20)
 	{
 		logPlanStack("leaf", g_traceLeftLeaf, appId, depotId, manifestId);
 		const uint64_t useGid =
@@ -663,8 +663,8 @@ namespace
 		return g_leaf.orig(ctx, a0C, appId, depotId, useGid, a20);
 	}
 
-	void* hkPrepareDepot(void* ctx, uint32_t a0C, uint32_t appId,
-	                     uint32_t depotId, uint64_t manifestId, uint32_t a20)
+	void* hkPrepareDepot(void* ctx, uintptr_t a0C, uint32_t appId,
+	                     uint32_t depotId, uint64_t manifestId, uintptr_t a20)
 	{
 		logPlanStack("plan", g_traceLeftPlanner, appId, depotId, manifestId);
 		const uint64_t useGid =

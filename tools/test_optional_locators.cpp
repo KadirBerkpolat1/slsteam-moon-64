@@ -271,6 +271,67 @@ void checkI386(
 		"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 81 EC 3C 04 00 00 8B 5D 08 "
 		"8B 75 14 89 85 ? ? FF FF 8B 45 0C",
 		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::GetOrAddAppData",
+		"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 2C 8B 75 0C 8B 7D 10 "
+		"89 45 D0 8B 80 ? ? 00 00 8B 00 85 C0 0F 85 ? ? ? ?",
+		source);
+	(void)resolveUnique(
+		client, "CUser::NotifyLicensesUpdated",
+		"55 89 E5 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 81 EC BC 01 00 00 8B 45 08 "
+		"8B ? ? 1B 00 00 89 9D 54 FE FF FF 85 ? 0F 8E ? ? ? ? 8D 83 ? ? ? ? "
+		"83 EC 08 6A 7D 50",
+		source);
+	(void)resolveUnique(
+		client, "CUser::MarkLicenseAsChanged",
+		"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 2C 8B 74 24 40 8B 44 24 48 "
+		"8B BE ? ? 00 00 88 44 24 1C 8D 86 ? ? 00 00 89 44 24 0C 85 FF 0F 84 ? ? ? ?",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::ProcessDepotManifest",
+		"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 4C 8B 55 1C 89 45 C0 "
+		"8B 45 18 89 55 CC 89 45 C8",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::PrepareDepotDownload",
+		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 83 EC 60 8B 7D 08 8B 45 18 "
+		"8B 55 1C FF 75 20 89 45 98 52 50 FF 75 14 89 55 9C FF 75 10 FF 75 0C "
+		"57 E8 ? ? ? ? 8B 47 4C 83 C4 20 83 F8 FF",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::EvaluateConfigChanges",
+		"55 89 E5 57 56 53 81 EC DC 00 00 00 89 85 50 FF FF FF 8B 45 10 "
+		"89 85 40 FF FF FF 8B 45 08 8B 40 04",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::ThreadedReadFromDisk",
+		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 0C 11 00 00 8B 45 08 "
+		"89 85 0C EF FF FF",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::SkipFlagReference",
+		"80 7E 10 00 0F 44 C8 88 4C 24 1E 8B 44 24 10 83 C7 01 3B 7D 44 8B 30 7C 9E",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::ShaReference",
+		"8D 40 1C 50 E8 ? ? ? ? 83 C4 10 85 C0 75 10 0F B6 4C 24 1E 80 7E 10 "
+		"00 0F 44 C8 88 4C 24 1E",
+		source);
+	(void)resolveUnique(
+		client, "ParentalSettingsReceived",
+		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 00 02 00 00 8B 45 08 "
+		"8B 55 1C 8B 7D 0C",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::OnChunkUnpacked[cdecl]",
+		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 7C 04 00 00 8B 45 0C "
+		"8B 7D 08 89 85 90 FB FF FF 8B 45 10 89 85 8C FB FF FF",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::OnChunkUnpacked[regparm3]",
+		"55 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 89 C6 53 81 EC 7C 04 00 00 "
+		"8B 45 0C 89 95 90 FB FF FF 89 8D 8C FB FF FF 89 85 94 FB FF FF",
+		source);
 }
 
 void checkX86_64(
@@ -340,6 +401,50 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "CDepotDownloadMgr::BuildDepotDependency",
 		"41 57 41 56 41 55 41 54 41 89 F4 55 48 89 FD 53 48 81 EC ? ? 00 00 64 4C 8B 2C 25 28 00 00 00 4C 89 AC 24 ? ? 00 00 49 89 CD C6 47 1C 01 44 8B 72 10",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::GetOrAddAppData",
+		"41 57 41 56 41 55 41 54 49 89 FC 55 89 F5 53 48 83 EC 18 48 8B 05 ? ? ? ? 64 48 8B 1C 25 28 00 00 00 48 89 5C 24 08 89 D3 8B 10 31 C0 85 D2 74 14 48 8D 3D ? ? ? ? 48 89 E2 BE 04 00 00 00 E8 ? ? ? ? 85 ED 48 89 04 24 0F 84 ? ? ? ? 49 63 44 24 68 83 F8 FF",
+		source);
+	(void)resolveUnique(
+		client, "CUser::NotifyLicensesUpdated",
+		"41 57 41 56 41 55 41 54 55 53 48 81 EC ? ? 00 00 44 8B 8F ? 23 00 00 48 89 7C 24 ? 64 48 8B 04 25 28 00 00 00 48 89 84 24 ? ? 00 00 31 C0 45 85 C9 0F 8E ? ? ? ? 48 8D 3D ? ? ? ? BE 7D 00 00 00 E8 ? ? ? ? 84 C0 0F 85 ? ? ? ? 48 8B 5C 24 ? 45 31 C0 B9 01 00 00 00 BE 7D 00 00 00",
+		source);
+	(void)resolveUnique(
+		client, "CUser::MarkLicenseAsChanged",
+		"41 57 48 8D 87 ? 23 00 00 41 89 F7 41 56 41 55 41 54 55 53 48 83 EC 28 88 54 24 ? 8B 97 ? 23 00 00 89 74 24 ? 48 89 44 24 ? 85 D2 0F 84 ? ? ? ?",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::ProcessDepotManifest",
+		"41 57 41 56 41 89 CE 41 55 41 54 49 89 FC 55 53 4C 89 C3 48 83 EC 38 48 89 34 24 89 54 24 0C 4C 89 4C 24 10 64 48 8B 04 25 28 00 00 00 48 89 44 24 28 48 63 47 60 83 F8 FF",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::PrepareDepotDownload",
+		"41 57 41 56 41 55 41 54 55 53 48 89 FB 48 83 EC 78 48 89 74 24 08 89 4C 24 04 64 4C 8B 24 25 28 00 00 00 4C 89 64 24 68 4D 89 C4 E8 ? ? ? ? 48 63 43 60 83 F8 FF",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::EvaluateConfigChanges",
+		"55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC ? ? 00 00 89 95 ? ? FF FF 8B 57 08 48 89 B5 ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8 31 C0 41 89 D4 41 83 E4 01 75 ? 83 BF ? ? 00 00 19",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::ThreadedReadFromDisk",
+		"55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 88 11 00 00 48 89 BD ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::SkipFlagReference",
+		"0F B6 40 14 49 83 C6 01 20 44 24 ? 45 39 77 50 7F ?",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::ShaReference",
+		"48 39 48 20 75 ? 48 8D 35 ? ? ? ? 48 8B 76 08 48 39 70 28 75 ? 48 8D 3D ? ? ? ? 8B 7F 10 39 78 30 75 ?",
+		source);
+	(void)resolveUnique(
+		client, "ParentalSettingsReceived",
+		"41 57 41 56 45 89 C6 41 55 49 89 F5 41 54 41 89 D4 55 48 89 FD 53 48 89 CB 48 81 EC ? ? 00 00 48 8D 15 ? ? ? ? 48 8B 84 24 ? ? 00 00",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::OnChunkUnpacked[cdecl]",
+		"55 48 89 E5 41 57 41 56 49 89 F6 41 55 49 89 D5 41 54 41 89 CC 53 48 81 EC ? ? 00 00 48 8B 05 ? ? ? ? 48 89 BD ? ? FF FF 4C 89 85 ? ? FF FF 64 4C 8B 3C 25 28 00 00 00",
 		source);
 }
 } // namespace
