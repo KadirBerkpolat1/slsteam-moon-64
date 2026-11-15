@@ -421,19 +421,37 @@ in the installed libraries. The five SteamUI locators
 Harness run on `main` (`bin/SLSsteam.so` BuildID `dd28a347`): 0 `Required
 pattern` misses, `LibraryRemoval: SteamUI queue ready (ownership offset=0x1c)`,
 `Loaded successfully`, and **12 optional patterns that do not resolve yet**.
-Each one logs "dependent feature disabled", so those features are off on x86_64,
-not wrong:
+Each one logs "dependent feature disabled". That names the hook, not a whole
+feature area: the everyday paths below run on resolved hooks.
 
-- `ParentalSettingsReceived`
-- `CUser::MarkLicenseAsChanged`, `CUser::NotifyLicensesUpdated`
-- `CAppInfoCache::GetOrAddAppData`, `CAppInfoCache::ThreadedReadFromDisk`,
-  `CAppInfoCache::SkipFlagReference`, `CAppInfoCache::ShaReference`
-- `CDepotDownloadMgr::ProcessDepotManifest`,
-  `CDepotDownloadMgr::PrepareDepotDownload`,
-  `CDepotDownloadMgr::EvaluateConfigChanges`
-- `CDepotDownloadMgr::OnChunkUnpacked[cdecl]` and
-  `CDepotDownloadMgr::OnChunkUnpacked[regparm3]` (two i386 calling-convention
-  variants of one function)
+### What the 12 unresolved optional patterns actually cost
+
+Read from the source on `9691886`, not observed in a running client.
+
+| pattern | real effect on x86_64 | severity for a normal user |
+|---|---|---|
+| `CUser::MarkLicenseAsChanged` | Restart-less licence refresh is deferred. `LicenseRefreshPolicy::decide()` returns `Defer` unless mark, process and the unresolved-state guard are all available (`src/feats/license_refresh_policy.hpp:23-35`, called at `src/feats/packagepatch.cpp:533-558`). Adding or removing a game while Steam runs needs a Steam restart. | Medium: the main gap |
+| `CUser::NotifyLicensesUpdated` | The deferred-refresh fallback (`src/feats/packagepatch.cpp:855`) and the cold-cache reconcile cannot broadcast `LicensesUpdated_t` (`packagepatch.cpp:168-169`). On a cold cache the client can stay at "Loading user data" (`packagepatch.cpp:119-127`). Warm-cache boots are unaffected. | Medium, cold cache only |
+| `CAppInfoCache::GetOrAddAppData`, `SkipFlagReference`, `ShaReference` | The unresolved-app skip guard is not installed (`hkGetOrAddAppData`, `src/feats/appinfostate.cpp:442-472`). Boot-time appinfo splices still run (`src/main.cpp:391`, `:413`), and the authority set that PICS filtering reads does not depend on the hook (`appinfostate.cpp:760-784`, read at `src/feats/pics.cpp:798`). | Low |
+| `CAppInfoCache::ThreadedReadFromDisk` | Live appinfo reloads do nothing (`AppInfoState::reloadFromDisk`, `appinfostate.cpp:786-809`), so hot-added games and live DLC metadata wait for the next Steam start. | Low: same restart as above |
+| `CDepotDownloadMgr::ProcessDepotManifest`, `PrepareDepotDownload` | The offline / provider-down fallback that points a missing public manifest GID at a locally held one is off (`redirectGid`, `src/feats/manifestbind.cpp:477-655`, called only from these two detours at `:657-673`). Online installs still stage manifests through `BuildDepotDependency` (`manifestbind.cpp:685-857`), `BYldRequestDepotManifest` (`src/feats/manifestcode.cpp:759-848`) and PICS. | Low: offline only |
+| `CDepotDownloadMgr::EvaluateConfigChanges` | ReconcilePin is off (`src/feats/reconcilepin.cpp:370-373`). The post-commit target config is not rewritten to manifest pins and managed size-zero depots are not pruned (`src/feats/reconcilepin.hpp:13-21`), so the downgrade loop it fixes can return. | Low–medium: pin and downgrade users |
+| `ParentalSettingsReceived` | `Parental::setup()` returns before it reaches the signature check (`src/feats/parental.cpp:129-137`). Local parental unlock is inactive. | Low: Family View users only |
+| `CDepotDownloadMgr::OnChunkUnpacked[cdecl]`, `[regparm3]` | Two i386 calling-convention variants with i386-only signatures (`src/patterns.cpp:1985-2007`). Only live auto-quarantine of undecryptable DLC depots is off. | Low |
+
+Ownership and DLC at boot are not on that list. `PackagePatch::setup()` needs
+only `LoadPackage` and `CUtlMemory::Grow` (`src/feats/packagepatch.cpp:910-950`),
+both required and resolved, and logs "boot path remains available" when the
+runtime refresh capability is incomplete. `CUser::CheckAppOwnership` and
+`CUser::GetSubscribedApps` are required and resolve. The DLC vtable hooks
+(`src/hooks.cpp:907-912`) are placed from the required
+`IClientApps::RunIPCFrame` (`src/hooks.cpp:1512`). Package 0 injection at boot
+works.
+
+The resolved `CCMInterface::RecvPkt` hook does **not** stand in for licence
+refresh. On `kEMsgClientLicenseList`, `src/feats/cmrecv.cpp:76-95` only calls
+`Achievements::recvMessage` and `ManifestDonor::onLicenseList`; it never
+injects Package 0 and never broadcasts `LicensesUpdated_t`.
 
 There is no symbol-table shortcut. `steamrt64/steamclient.so` keeps a real
 `.symtab` but only 483 named functions, all third-party (`Breakpad_*`, OpenSSL,
@@ -464,7 +482,8 @@ Run on Linux 7.3.4, gcc 16.2.1, glibc 2.44, Steam client builds 2026-10-22.
 **Not verified:** the client has never been launched against this build. No
 P2P session, no FakeAppIds path, nothing runtime. In the LD_AUDIT harness the
 required patterns are complete (0 misses) and hook setup completes (`Loaded
-successfully`); 12 optional patterns still do not resolve (see "Pattern table").
+successfully`); 12 optional patterns still do not resolve (see "What the 12
+unresolved optional patterns actually cost").
 
 ## Upstream
 
