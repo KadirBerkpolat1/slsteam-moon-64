@@ -52,6 +52,77 @@ floor exceeds the advertised one for the default image (`ADVERTISED_GLIBC` /
 x86_64 it also loads each object as an LD_AUDIT module under the image's own
 `ld.so` before the result leaves the container.
 
+## Release payload (`install.sh --prebuilt`)
+
+```sh
+scripts/build-release-payload.sh                         # -> dist/release/x86_64/
+scripts/build-release-payload.sh --out /tmp/staging      # anywhere else
+```
+
+One command builds the x86_64 payload that moon64's `install.sh --prebuilt`
+downloads from a GitHub release. It creates no release, and publishing stays a
+manual step. The output directory holds exactly three files:
+
+| file | content |
+|---|---|
+| `SLSsteam.so` | the container build of `HEAD` above |
+| `SLSsteam.so.sha256` | `<sha256>  SLSsteam.so` (`sha256sum -c` compatible) |
+| `pattern-status.txt` | the pattern table measured on that `SLSsteam.so` in the same run |
+
+The script refuses to write anything (exit 1, output directory untouched) unless
+all of these hold:
+
+- The symbol floor is at most `GLIBC_2.17`, `GLIBCXX_3.4.22` and
+  `CXXABI_1.3.11`. The working floor in `PORTING.md` depends on these.
+- The stock `ubuntu:18.04` image (glibc 2.27, the measured working floor)
+  accepts the library as an LD_AUDIT module under its own `ld.so`. It must
+  exit 0, print no message, and look up `la_objopen` in the library.
+  `--no-load-check` skips this, and the run then says so.
+- The library resolves every required pattern when it is LD_AUDIT-loaded into
+  an inert process named `steam` that `dlopen`s `steamclient.so` and
+  `steamui.so` from `--steam-runtime` (default
+  `~/.local/share/Steam/steamrt64`). That process runs in bubblewrap with the
+  whole filesystem read-only, no network and an empty `HOME`, so the Steam
+  install is only read, never written. The counts come from the library
+  itself:
+  - its runtime attestation reports every locator as resolved or missing,
+    and each event carries the sha256 of the loaded file, which must equal
+    the built one;
+  - the pattern catalog it writes after a successful scan marks each
+    resolved locator `required=true` or `false`.
+- The measured `arch`, `required`, `resolved`, `pending` and
+  `runipcframe_tail` equal `res/pattern-status.txt` at `HEAD`, and pass the
+  installer's gate (`pending=0`, `runipcframe_tail=ready`).
+
+### What binds `pattern-status.txt` to `SLSsteam.so`
+
+`pattern-status.txt` is an output of the run that built the library, never a
+copy of the checked-in file. Its single `binary_sha256=` line is the sha256 of
+the `SLSsteam.so` it was measured on. A consumer must:
+
+1. compute the sha256 of the downloaded `SLSsteam.so`;
+2. if `SLSsteam.so.sha256` is published, compare its first field;
+3. require exactly one `binary_sha256=` line in `pattern-status.txt` whose
+   value equals that sha256, and refuse otherwise;
+4. only then gate on `arch=x86_64`, `required`, `resolved`, `pending=0` and
+   `runipcframe_tail=ready`.
+
+Step 3 is what makes the counts evidence about this file. Without it, a stale
+status file can vouch for a library it was never measured on.
+
+Informational keys, which a consumer may log and must not require:
+
+| key | meaning |
+|---|---|
+| `source_commit` | the commit that was built |
+| `steamclient_build_id`, `steamui_build_id` | GNU build-ids of the Steam libraries the counts were measured against |
+| `optional_resolved`, `optional_missing` | optional locators; each missing one disables only its own feature |
+| `glibc_symbol_floor`, `glibcxx_symbol_floor`, `cxxabi_symbol_floor` | `readelf -V` floor of the library |
+
+Anyone who can replace release assets can replace all three files together.
+Neither the checksum nor the binding defends against that; only a signature
+checked against a key pinned in the installer would.
+
 ## CI workflow (not enabled)
 
 `.gitignore` ignores `.github` on purpose, which keeps CI off forks. A workflow
