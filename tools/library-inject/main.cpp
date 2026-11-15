@@ -2,15 +2,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iostream>
 #include <link.h>
 #include <set>
 #include <string>
 #include <unordered_set>
-
-
-//std::ofstream logFile("/tmp/env-mod.log");
 
 static std::unordered_set<std::string> LIBS =
 {
@@ -46,17 +41,12 @@ char *la_objsearch(const char *name, __attribute__((unused)) uintptr_t *cookie, 
 		return const_cast<char*>(name);
 	}
 
-	//logFile << "objopen: " << name << std::endl;
-
 	if(LIBS.contains(name))
 	{
-		//logFile << "Replacing: " << name << std::endl;
-
 		for(const auto& dir : DIRS)
 		{
 			char path[255];
 			snprintf(path, sizeof(path), "%s/%s", dir.c_str(), name);
-			//logFile << "Path: " << path << std::endl;
 
 			if (!std::filesystem::exists(path))
 			{
@@ -66,7 +56,6 @@ char *la_objsearch(const char *name, __attribute__((unused)) uintptr_t *cookie, 
 			char* n = reinterpret_cast<char*>(malloc(sizeof(path)));
 			if (!n)
 			{
-				//logFile << "Failed to allocate char*!\n";
 				break;
 			}
 
@@ -79,9 +68,12 @@ char *la_objsearch(const char *name, __attribute__((unused)) uintptr_t *cookie, 
 	return const_cast<char*>(name);
 }
 
-unsigned int la_version(unsigned int)
+// Answer with the loader's interface version, capped at ours: a loader offering
+// LAV 1 (upstream glibc <= 2.34) refuses a module answering 2, and on 2.31/2.33
+// that refusal aborts the whole process.  la_objsearch exists in LAV 1.
+unsigned int la_version(unsigned int version)
 {
-	return LAV_CURRENT;
+	return version == 0 ? LAV_CURRENT : (version < LAV_CURRENT ? version : LAV_CURRENT);
 }
 
 //void la_preinit(__attribute__((unused)) uintptr_t *cookie)

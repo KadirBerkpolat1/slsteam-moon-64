@@ -807,9 +807,16 @@ static void load()
 // threads call them).
 // ───────────────────────────────────────────────────────────────────────
 
-extern "C" unsigned int la_version(unsigned int)
+// Answer with the loader's interface version, capped at the one we were built
+// against.  A loader offering LAV 1 (upstream glibc <= 2.34) refuses a module
+// answering 2, and the refusal kills the process: 2.33 asserts unloading a
+// module that pulled in libstdc++, 2.31 asserts printing the error (rc 127).
+// Every hook here (la_objopen, la_preinit, la_symbind32/64) exists in LAV 1.
+// aarch64 glibc >= 2.35 accepts only LAV_CURRENT, which is what it offers, so
+// echoing the offer satisfies it.
+extern "C" unsigned int la_version(unsigned int version)
 {
-	return LAV_CURRENT;
+	return version == 0 ? LAV_CURRENT : (version < LAV_CURRENT ? version : LAV_CURRENT);
 }
 
 // ───────────────────────────────────────────────────────────────────────
