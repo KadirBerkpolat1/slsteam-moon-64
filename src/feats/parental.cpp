@@ -127,8 +127,14 @@ void setup()
 	}
 
 	const lm_address_t receiver = Patterns::ParentalSettingsReceived.address;
-	if (receiver == 0 || receiver == LM_ADDRESS_BAD
-	    || !looksLikeSettingsReceiver(reinterpret_cast<const uint8_t*>(receiver), 32))
+#if defined(__x86_64__)
+	const bool validReceiver = receiver != 0 && receiver != LM_ADDRESS_BAD
+	    && looksLikeSettingsReceiver64(reinterpret_cast<const uint8_t*>(receiver), 32);
+#else
+	const bool validReceiver = receiver != 0 && receiver != LM_ADDRESS_BAD
+	    && looksLikeSettingsReceiver(reinterpret_cast<const uint8_t*>(receiver), 32);
+#endif
+	if (!validReceiver)
 	{
 		g_pLog->warn("Parental: internal settings receiver unavailable; local unlock disabled\n");
 		return;

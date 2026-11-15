@@ -927,7 +927,21 @@ namespace Patterns
 	Pattern_t ParentalSettingsReceived
 	{
 		"ParentalSettingsReceived",
+#if defined(__x86_64__)
+		// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x186db40).
+		// Proof 1: Verifies RSA signature via 0x24e3ec0 (shared with
+		// ParentalSignatureCheck 0x186d995), parses serialized ParentalSettings
+		// protobuf (0x28ba75e), and reads CUser SteamID account ID [rbp+0x242]
+		// (same +0x242 offset as ParentalSignatureCheck).
+		// Proof 2: Exact 4 external callers (0x119cc90, 0x186df70, 0x186dfd0,
+		// 0x186e370), matching i386 0x1a3d520's 4 callers (0x12eb680, 0x1a3d110,
+		// 0x1a3db40, 0x1a3dd90), taking (instance, settings, settingsLen,
+		// signature, signatureLen, a6, a7) in (rdi, rsi, edx, rcx, r8d, r9, [rsp+8]).
+		// Unique at 20/47 tokens.
+		"41 57 41 56 45 89 C6 41 55 49 89 F5 41 54 41 89 D4 55 48 89 FD 53 48 89 CB 48 81 EC ? ? 00 00 48 8D 15 ? ? ? ? 48 8B 84 24 ? ? 00 00",
+#else
 		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 00 02 00 00 8B 45 08 8B 55 1C 8B 7D 0C",
+#endif
 		SigFollowMode::None
 	};
 

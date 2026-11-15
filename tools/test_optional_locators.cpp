@@ -317,6 +317,11 @@ void checkI386(
 		"8D 40 1C 50 E8 ? ? ? ? 83 C4 10 85 C0 75 10 0F B6 4C 24 1E 80 7E 10 "
 		"00 0F 44 C8 88 4C 24 1E",
 		source);
+	(void)resolveUnique(
+		client, "ParentalSettingsReceived",
+		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 00 02 00 00 8B 45 08 "
+		"8B 55 1C 8B 7D 0C",
+		source);
 }
 
 void checkX86_64(
@@ -422,6 +427,10 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "CAppInfoCache::ShaReference",
 		"48 39 48 20 75 ? 48 8D 35 ? ? ? ? 48 8B 76 08 48 39 70 28 75 ? 48 8D 3D ? ? ? ? 8B 7F 10 39 78 30 75 ?",
+		source);
+	(void)resolveUnique(
+		client, "ParentalSettingsReceived",
+		"41 57 41 56 45 89 C6 41 55 49 89 F5 41 54 41 89 D4 55 48 89 FD 53 48 89 CB 48 81 EC ? ? 00 00 48 8D 15 ? ? ? ? 48 8B 84 24 ? ? 00 00",
 		source);
 }
 } // namespace

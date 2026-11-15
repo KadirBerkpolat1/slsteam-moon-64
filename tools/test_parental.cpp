@@ -85,6 +85,23 @@ int main()
 		CHECK(!Parental::looksLikeSettingsReceiver(
 		          badReceiver.data(), badReceiver.size()),
 		      "unexpected parental settings receiver prologue is rejected");
+
+		const uint8_t receiverPrologue64[] = {
+			0x41, 0x57, 0x41, 0x56, 0x45, 0x89, 0xc6,
+			0x41, 0x55, 0x49, 0x89, 0xf5,
+			0x41, 0x54, 0x41, 0x89, 0xd4,
+			0x55, 0x48, 0x89, 0xfd, 0x53, 0x48, 0x89, 0xcb,
+			0x48, 0x81, 0xec, 0x58, 0x02, 0x00, 0x00,
+		};
+		CHECK(Parental::looksLikeSettingsReceiver64(receiverPrologue64,
+		      sizeof(receiverPrologue64)),
+		      "x86_64 parental settings receiver prologue is accepted");
+		auto badReceiver64 = std::vector<uint8_t>(
+			receiverPrologue64, receiverPrologue64 + sizeof(receiverPrologue64));
+		badReceiver64[27] = 0x90;
+		CHECK(!Parental::looksLikeSettingsReceiver64(
+		          badReceiver64.data(), badReceiver64.size()),
+		      "unexpected x86_64 parental settings receiver prologue is rejected");
 	}
 
 	{
