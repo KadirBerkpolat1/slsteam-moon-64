@@ -40,8 +40,9 @@ changes are not included, and the working tree's `obj/`, `bin/` and
 | `manifest.json` | see below |
 
 `manifest.json` keys: `arch`, `glibc_floor`, `glibcxx_floor`, `cxxabi_floor`
-(the maximum over the LD_AUDIT objects), `audit_interface` (the LD_AUDIT version
-`la_version` requests), `source_commit`, `built_at`, `image`, `image_digest`,
+(the maximum over the LD_AUDIT objects), `audit_interface` (the highest LD_AUDIT
+version `la_version` accepts; older loaders get their own version back),
+`source_commit`, `built_at`, `image`, `image_digest`,
 `helper_image`/`helper_image_digest` (with `--with-helper`), `runtime`, and
 `files` with per-file floors and sha256.
 

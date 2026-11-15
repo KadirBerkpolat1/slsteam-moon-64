@@ -285,5 +285,5 @@ mkdir -p "$(dirname "$OUT")"
 cp -r "$stage" "$OUT"
 
 echo "==> measured floor ($ARCH, $IMAGE): GLIBC_$glibc GLIBCXX_$glibcxx CXXABI_$cxxabi"
-echo "==> requests LD_AUDIT interface version $LAV; the host ld.so must support it (see PORTING.md)"
+echo "==> la_version accepts the LD_AUDIT interface version ld.so offers, up to $LAV (see PORTING.md)"
 echo "==> wrote $OUT"
