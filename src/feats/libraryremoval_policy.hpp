@@ -40,6 +40,48 @@ inline std::optional<std::size_t> deriveOwnershipOffset(
 	return offset;
 }
 
+struct OwnershipRead
+{
+	std::size_t offset = 0;
+	std::size_t length = 0;
+};
+
+inline std::optional<OwnershipRead> deriveOwnershipOffset64(
+	std::span<const std::uint8_t> instruction) noexcept
+{
+	// `[REX] 8B /r` with mod=01 (disp8) and reg=edx, i.e. `mov edx,[base+disp8]`.
+	// The x86-64 FillInAppOverview (steamui 57d58821dd9c285beae2688cc85d64f7c2c5f308)
+	// loads the field straight into the emitter's third argument register as
+	// `41 8B 56 1C` (`mov edx,[r14+0x1c]`).  REX may only select the base: W=1
+	// is a 64-bit read and R=1 names r10d, neither of which is this read.  A SIB
+	// byte (rm=100) and [rbp/r13+disp8] (rm=101) are refused as on i386.
+	std::size_t at = 0;
+	if (!instruction.empty() && (instruction[0] & 0xF0) == 0x40)
+	{
+		if ((instruction[0] & 0x0C) != 0)
+			return std::nullopt;
+		at = 1;
+	}
+	if (instruction.size() < at + 3 || instruction[at] != 0x8B)
+		return std::nullopt;
+
+	const std::uint8_t modrm = instruction[at + 1];
+	const std::uint8_t mod = modrm >> 6;
+	const std::uint8_t reg = (modrm >> 3) & 0x7;
+	const std::uint8_t rm = modrm & 0x7;
+	if (mod != 0b01 || reg != 0b010 || rm == 0b100 || rm == 0b101)
+		return std::nullopt;
+
+	// disp8 is sign-extended by the CPU; a negative member offset is not this field.
+	const auto disp = static_cast<std::int8_t>(instruction[at + 2]);
+	if (disp <= 0)
+		return std::nullopt;
+	const auto offset = static_cast<std::size_t>(disp);
+	if (offset > 0x100 || (offset % alignof(std::uint32_t)) != 0)
+		return std::nullopt;
+	return OwnershipRead{offset, at + 3};
+}
+
 enum class Action : std::uint8_t
 {
 	Remove,

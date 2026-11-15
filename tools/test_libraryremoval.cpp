@@ -45,6 +45,45 @@ int main()
 	      "a SIB-addressed read is rejected");
 	check(!LibraryRemovalPolicy::deriveOwnershipOffset(unalignedOffset),
 	      "unaligned ownership field is rejected");
+
+	// The x86-64 FillInAppOverview reads the same field as `41 8B 56 1C`
+	// (`mov edx,[r14+0x1c]`, steamui 57d58821...); a non-REX base decodes to
+	// the same offset with a shorter instruction.
+	const auto decode64 = [](std::span<const std::uint8_t> bytes) {
+		return LibraryRemovalPolicy::deriveOwnershipOffset64(bytes);
+	};
+	constexpr std::array<std::uint8_t, 4> read64Rex{0x41, 0x8B, 0x56, 0x1C};
+	constexpr std::array<std::uint8_t, 3> read64NoRex{0x8B, 0x56, 0x1C};
+	constexpr std::array<std::uint8_t, 4> read64Wide{0x49, 0x8B, 0x56, 0x1C};
+	constexpr std::array<std::uint8_t, 4> read64R10{0x45, 0x8B, 0x56, 0x1C};
+	constexpr std::array<std::uint8_t, 4> read64Eax{0x41, 0x8B, 0x46, 0x1C};
+	constexpr std::array<std::uint8_t, 5> read64Sib{0x41, 0x8B, 0x54, 0x24, 0x1C};
+	constexpr std::array<std::uint8_t, 3> read64Rbp{0x8B, 0x55, 0x1C};
+	constexpr std::array<std::uint8_t, 4> read64R13{0x41, 0x8B, 0x55, 0x1C};
+	constexpr std::array<std::uint8_t, 4> read64Disp32{0x41, 0x8B, 0x96, 0x1C};
+	constexpr std::array<std::uint8_t, 4> read64Store{0x41, 0x89, 0x56, 0x1C};
+	constexpr std::array<std::uint8_t, 4> read64Unaligned{0x41, 0x8B, 0x56, 0x1D};
+	constexpr std::array<std::uint8_t, 4> read64Zero{0x41, 0x8B, 0x56, 0x00};
+	constexpr std::array<std::uint8_t, 4> read64Negative{0x41, 0x8B, 0x56, 0xE4};
+	constexpr std::array<std::uint8_t, 3> read64Truncated{0x41, 0x8B, 0x56};
+	const auto rex = decode64(read64Rex);
+	check(rex && rex->offset == 0x1C && rex->length == 4,
+	      "x86-64 REX.B read derives the offset and its length");
+	const auto noRex = decode64(read64NoRex);
+	check(noRex && noRex->offset == 0x1C && noRex->length == 3,
+	      "x86-64 read without REX derives the offset and its length");
+	check(!decode64(read64Wide), "a REX.W 64-bit read is rejected");
+	check(!decode64(read64R10), "a REX.R read into r10d is rejected");
+	check(!decode64(read64Eax), "an x86-64 read into eax is rejected");
+	check(!decode64(read64Sib), "an x86-64 SIB-addressed read is rejected");
+	check(!decode64(read64Rbp), "an [rbp+disp8] read is rejected");
+	check(!decode64(read64R13), "an [r13+disp8] read is rejected");
+	check(!decode64(read64Disp32), "a disp32 read is rejected");
+	check(!decode64(read64Store), "a store to the field is rejected");
+	check(!decode64(read64Unaligned), "an unaligned x86-64 field is rejected");
+	check(!decode64(read64Zero), "a zero x86-64 displacement is rejected");
+	check(!decode64(read64Negative), "a negative disp8 is rejected");
+	check(!decode64(read64Truncated), "a truncated instruction is rejected");
 	check(LibraryRemovalPolicy::hiddenOwnershipFlags(0x0803) == 0,
 	      "visual removal clears every ownership presentation flag");
 
