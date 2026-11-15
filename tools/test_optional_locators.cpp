@@ -308,6 +308,10 @@ void checkI386(
 		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 0C 11 00 00 8B 45 08 "
 		"89 85 0C EF FF FF",
 		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::SkipFlagReference",
+		"80 7E 10 00 0F 44 C8 88 4C 24 1E 8B 44 24 10 83 C7 01 3B 7D 44 8B 30 7C 9E",
+		source);
 }
 
 void checkX86_64(
@@ -405,6 +409,10 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "CAppInfoCache::ThreadedReadFromDisk",
 		"55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 88 11 00 00 48 89 BD ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::SkipFlagReference",
+		"0F B6 40 14 49 83 C6 01 20 44 24 ? 45 39 77 50 7F ?",
 		source);
 }
 } // namespace

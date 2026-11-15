@@ -1645,7 +1645,20 @@ namespace Patterns
 		Pattern_t SkipFlagReference
 		{
 			"CAppInfoCache::SkipFlagReference",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, insn 0x1851361).
+			// Proof 1: Inside CUser::ProcessPendingLicenseUpdates (0x1851250), immediately
+			// after GetOrAddAppData (0x102e360 -> CAppData* in rax) and the 20-byte
+			// SHA comparison at +0x20..+0x34, reads [rax+0x14] (`movzx eax, byte ptr
+			// [rax+0x14]`) and ANDs it into the all-skipped flag (`and [rsp+0x17], al`).
+			// Proof 2: CAppData constructor (0x1026280) zero-initializes [rdi+0x14] as a
+			// word alongside +0x16, matching i386 CAppData ctor (0x115f3a0) zeroing
+			// [esi+0x10] alongside +0x12 (4-byte vptr growth shifts +0x10 -> +0x14).
+			// Unique in module.
+			"0F B6 40 14 49 83 C6 01 20 44 24 ? 45 39 77 50 7F ?",
+#else
 			"80 7E 10 00 0F 44 C8 88 4C 24 1E 8B 44 24 10 83 C7 01 3B 7D 44 8B 30 7C 9E",
+#endif
 			SigFollowMode::None
 		};
 		// Instruction site at RVA 0x0186C914: lea eax,[eax+disp8], using the
