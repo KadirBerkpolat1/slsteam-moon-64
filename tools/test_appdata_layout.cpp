@@ -109,5 +109,19 @@ int main()
 	check(!derive(actualSkipInsn, wrongShaNoDisplacement),
 	      "register-only SHA reference is rejected");
 
+	constexpr std::array<std::uint8_t, 4> x64SkipInsn{
+		0x0F, 0xB6, 0x40, 0x14
+	};
+	constexpr std::array<std::uint8_t, 4> x64ShaInsn{
+		0x48, 0x39, 0x48, 0x20
+	};
+	checkLayout(AppDataLayout::derive64(x64SkipInsn, x64ShaInsn), Layout{0x14, 0x20},
+	            "current x86_64 sites derive the live layout");
+	constexpr std::array<std::uint8_t, 4> x64OverlapSha{
+		0x48, 0x39, 0x48, 0x10
+	};
+	check(!AppDataLayout::derive64(x64SkipInsn, x64OverlapSha),
+	      "x86_64 overlapping fields are rejected");
+
 	return failures == 0 ? 0 : 1;
 }

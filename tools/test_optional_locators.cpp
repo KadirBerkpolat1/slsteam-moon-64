@@ -312,6 +312,11 @@ void checkI386(
 		client, "CAppInfoCache::SkipFlagReference",
 		"80 7E 10 00 0F 44 C8 88 4C 24 1E 8B 44 24 10 83 C7 01 3B 7D 44 8B 30 7C 9E",
 		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::ShaReference",
+		"8D 40 1C 50 E8 ? ? ? ? 83 C4 10 85 C0 75 10 0F B6 4C 24 1E 80 7E 10 "
+		"00 0F 44 C8 88 4C 24 1E",
+		source);
 }
 
 void checkX86_64(
@@ -413,6 +418,10 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "CAppInfoCache::SkipFlagReference",
 		"0F B6 40 14 49 83 C6 01 20 44 24 ? 45 39 77 50 7F ?",
+		source);
+	(void)resolveUnique(
+		client, "CAppInfoCache::ShaReference",
+		"48 39 48 20 75 ? 48 8D 35 ? ? ? ? 48 8B 76 08 48 39 70 28 75 ? 48 8D 3D ? ? ? ? 8B 7F 10 39 78 30 75 ?",
 		source);
 }
 } // namespace

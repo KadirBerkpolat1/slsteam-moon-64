@@ -1668,7 +1668,20 @@ namespace Patterns
 		Pattern_t ShaReference
 		{
 			"CAppInfoCache::ShaReference",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, insn 0x185133b).
+			// Proof 1: Inside CUser::ProcessPendingLicenseUpdates (0x1851250), immediately
+			// after GetOrAddAppData (0x102e360 -> CAppData* in rax), compares the
+			// 20-byte SHA at [rax+0x20..+0x34] (`cmp [rax+0x20], rcx; cmp [rax+0x28],
+			// rsi; cmp [rax+0x30], edi`) before testing the skip flag at [rax+0x14].
+			// Proof 2: CAppData constructor (0x1026280) zero-initializes the 20-byte
+			// SHA at +0x20..+0x34 (qword +0x20, qword +0x28, dword +0x30), matching
+			// i386 CAppData ctor (0x115f3a0) zeroing +0x1c..+0x30.
+			// Unique in module.
+			"48 39 48 20 75 ? 48 8D 35 ? ? ? ? 48 8B 76 08 48 39 70 28 75 ? 48 8D 3D ? ? ? ? 8B 7F 10 39 78 30 75 ?",
+#else
 			"8D 40 1C 50 E8 ? ? ? ? 83 C4 10 85 C0 75 10 0F B6 4C 24 1E 80 7E 10 00 0F 44 C8 88 4C 24 1E",
+#endif
 			SigFollowMode::None
 		};
 	}
