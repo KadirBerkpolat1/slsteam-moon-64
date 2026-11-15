@@ -1,6 +1,5 @@
 // Validate the optional runtime-capability locators against the installed
-// 32-bit Steam client.
-//
+// Steam client (i386 or x86_64, selected by the ELF class of argv[1]).
 // These are the compiled locators whose failure silently degrades a
 // feature instead of failing the load, so a signature that stops matching after
 // a client update is easy to miss:
@@ -33,6 +32,7 @@
 
 #include "feats/compatlive.hpp"
 #include "feats/libraryremoval_policy.hpp"
+#include <elf.h>
 
 #include <cstdint>
 #include <cstring>
@@ -121,6 +121,29 @@ std::string readFile(const char* path)
 	return std::string{std::istreambuf_iterator<char>(input),
 	                   std::istreambuf_iterator<char>()};
 }
+enum class ElfArch
+{
+	Invalid,
+	I386,
+	X86_64,
+};
+
+ElfArch detectElfArch(const std::string& image)
+{
+	if (image.size() < EI_NIDENT)
+		return ElfArch::Invalid;
+	const auto* ident = reinterpret_cast<const unsigned char*>(image.data());
+	if (ident[EI_MAG0] != ELFMAG0 || ident[EI_MAG1] != ELFMAG1
+	    || ident[EI_MAG2] != ELFMAG2 || ident[EI_MAG3] != ELFMAG3)
+	{
+		return ElfArch::Invalid;
+	}
+	if (ident[EI_CLASS] == ELFCLASS32)
+		return ElfArch::I386;
+	if (ident[EI_CLASS] == ELFCLASS64)
+		return ElfArch::X86_64;
+	return ElfArch::Invalid;
+}
 
 // Returns the single match offset, or npos after reporting the failure.
 std::size_t resolveUnique(
@@ -140,20 +163,12 @@ std::size_t resolveUnique(
 	++failures;
 	return std::string::npos;
 }
-} // namespace
 
-int main(int argc, char** argv)
+void checkI386(
+	const std::string& client,
+	const std::string& ui,
+	const std::string& source)
 {
-	if (argc < 3 || argc > 4)
-	{
-		std::cerr << "usage: test_optional_locators <steamclient.so> "
-		             "<steamui.so> [src/patterns.cpp]\n";
-		return 2;
-	}
-	const std::string client = readFile(argv[1]);
-	const std::string ui = readFile(argv[2]);
-	const std::string source = readFile(argc == 4 ? argv[3] : "src/patterns.cpp");
-
 	// The trailing `lea eax,[ebx+disp32]` reaches a data symbol through the PIC
 	// base, so its displacement moves whenever the GOT layout shifts. The hook
 	// only calls the resolved entry, so it stays wildcarded. The two CUser
@@ -256,6 +271,87 @@ int main(int argc, char** argv)
 		"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 81 EC 3C 04 00 00 8B 5D 08 "
 		"8B 75 14 89 85 ? ? FF FF 8B 45 0C",
 		source);
+}
+
+void checkX86_64(
+	const std::string& /*client*/,
+	const std::string& ui,
+	const std::string& source)
+{
+	expect(false,
+	       "CUser::ProcessPendingLicenseUpdates: not ported to x86_64 "
+	       "(degrades runtime license refresh in PackagePatch, so adding a "
+	       "game needs a Steam restart)");
+	expect(false,
+	       "CCMInterface::RecvPkt: not ported to x86_64 "
+	       "(degrades Family Share message filtering)");
+
+	const std::size_t ownership = resolveUnique(
+		ui, "CSteamApp::OwnershipFlagsReference",
+		"41 8B ? 1C 48 8B BD ? ? ? ? 48 8D 35 ? ? ? ? E8 ? ? ? ?",
+		source);
+	if (ownership != std::string::npos)
+	{
+		const auto* bytes =
+			reinterpret_cast<const std::uint8_t*>(ui.data()) + ownership;
+		const auto decoded = LibraryRemovalPolicy::deriveOwnershipOffset64(
+			std::span<const std::uint8_t>(bytes, 4));
+		expect(decoded.has_value(),
+		       "CSteamApp::OwnershipFlagsReference: the matched instruction does "
+		       "not decode to a usable ownership-flags offset");
+		if (decoded)
+		{
+			expect(decoded->offset == 0x1C && decoded->length == 4,
+			       "CSteamApp::OwnershipFlagsReference: expected offset 0x1C, "
+			       "length 4");
+			std::cout << "CSteamApp::OwnershipFlags offset = 0x" << std::hex
+			          << decoded->offset << " (length " << std::dec
+			          << decoded->length << ")\n";
+		}
+	}
+
+	expect(false,
+	       "ParentalSignatureCheck: not ported to x86_64 "
+	       "(degrades local parental unlock)");
+	expect(false,
+	       "CAPIJob::GetPlayerStats: not ported to x86_64 "
+	       "(degrades stats-job debug trace)");
+	expect(false,
+	       "CUser::m_CompatManager: not ported to x86_64 "
+	       "(degrades live compatibility-tool mapping for newly added titles)");
+	expect(false,
+	       "CDepotDownloadMgr::BuildDepotDependency: not ported to x86_64 "
+	       "(degrades install-plan pinning, empty-depot pruning, and "
+	       "event-driven manifest staging)");
+}
+} // namespace
+
+int main(int argc, char** argv)
+{
+	if (argc < 3 || argc > 4)
+	{
+		std::cerr << "usage: test_optional_locators <steamclient.so> "
+		             "<steamui.so> [src/patterns.cpp]\n";
+		return 2;
+	}
+	const std::string client = readFile(argv[1]);
+	const std::string ui = readFile(argv[2]);
+	const std::string source = readFile(argc == 4 ? argv[3] : "src/patterns.cpp");
+
+	const ElfArch clientArch = detectElfArch(client);
+	const ElfArch uiArch = detectElfArch(ui);
+	if (clientArch == ElfArch::Invalid || uiArch == ElfArch::Invalid
+	    || clientArch != uiArch)
+	{
+		std::cerr << "FAIL: invalid or mismatched ELF class between "
+		          << argv[1] << " and " << argv[2] << '\n';
+		return 2;
+	}
+
+	if (clientArch == ElfArch::X86_64)
+		checkX86_64(client, ui, source);
+	else
+		checkI386(client, ui, source);
 
 	if (failures != 0)
 	{
