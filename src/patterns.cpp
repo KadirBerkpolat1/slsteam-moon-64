@@ -1479,8 +1479,24 @@ namespace Patterns
 		Pattern_t BLoggedOn
 		{
 			"IClientUser::BLoggedOn",
+#if defined(__x86_64__)
+			// A whole function, eleven bytes: compare the account-state member
+			// against 4 and return the flag.  There is no call site to follow, so
+			// this is a direct entry match.
+			//
+			// The instruction alone is not unique -- 22 sites compare some member
+			// against 4 and setcc, and one of them is byte-identical.  Identity
+			// comes from the vtable: this address is slot 4 of the 259-slot CUser
+			// vtable, which is the same index BLoggedOn occupies in the i386
+			// IClientUser vtable.  The trailing single-byte nop is what
+			// separates it from the identical CGameServer body (which is padded
+			// with int3 instead).
+			"83 BF ? ? FF FF 04 0F 94 C0 C3 90",
+			SigFollowMode::None
+#else
 			"E9 ? ? ? ? ? ? ? ? ? ? 5B 5E 5F FF E0",
 			SigFollowMode::Relative
+#endif
 		};
 		Pattern_t BUpdateAppOwnershipTicket
 		{
@@ -1492,9 +1508,22 @@ namespace Patterns
 		Pattern_t GetAppOwnershipTicketExtendedData
 		{
 			"IClientUser::GetAppOwnershipTicketExtendedData",
+#if defined(__x86_64__)
+			// Located by vtable index: this i386 method occupies slot 105 of the
+			// IClientUser vtable, so slot 105 of the x86_64 CUser vtable is the
+			// same method.  Confirmed structurally, not just positionally --
+			// both bodies rebase `this` onto the enclosing object before calling
+			// through (`sub eax,0x18b0` vs `sub rdi,0x1f88`).
+			//
+			// The `sub rdi,<layout offset>` constant is part of this build's
+			// class layout, the same way the i386 arm's whole shape is.
+			"41 57 48 81 EF 88 1F 00 00",
+			SigFollowMode::None
+#else
 			"83 EC 24 FF 74 24 ? 8B 44 24",
 			SigFollowMode::PrologueUpwards,
 			std::vector<uint8_t> { 0x53, 0x56, 0x57, 0x55 }
+#endif
 		};
 		Pattern_t IsUserSubscribedAppInTicket
 		{
@@ -1513,9 +1542,22 @@ namespace Patterns
 		Pattern_t RequiresLegacyCDKey
 		{
 			"IClientUser::RequiresLegacyCDKey",
+#if defined(__x86_64__)
+			// Slot 86 by the same vtable-index correspondence as
+			// GetAppOwnershipTicketExtendedData.  An eleven-byte thunk: rebase
+			// `this` onto the enclosing object, then tail-call the real body.
+			// The trailing `41 57 41 56 41 89 F6` is the entry of the target it
+			// jumps to, which keeps the match unique -- the `sub rdi` alone is
+			// not.
+			"48 81 EF 88 1F 00 00 E9 ? ? ? ? "
+			"CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC "
+			"41 57 41 56 41 89 F6",
+			SigFollowMode::None
+#else
 			"75 ? 83 C4 1C 31 C0 5B 5E 5F 5D C3 ? ? ? ? ? 8B 44 24 ? 83 C4 1C 89 F9 89 F2 5B 5E 5F 5D 2D ? ? 00 00",
 			SigFollowMode::PrologueUpwards,
 			std::vector<uint8_t> { 0x53, 0x56, 0x57, 0x55 }
+#endif
 		};
 	}
 
