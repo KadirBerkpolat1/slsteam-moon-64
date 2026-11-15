@@ -1,7 +1,9 @@
 # Building slsteam-moon
 
-slsteam-moon is a 32-bit shared library that hooks into Steam through
-`LD_AUDIT`. The build produces two artefacts:
+slsteam-moon is a shared library that hooks into Steam through `LD_AUDIT`:
+i386 (the default) for the 32-bit `ubuntu12_32` client, or x86_64
+(`--arch x86_64`) for the 64-bit `steamrt64` client. The build produces two
+artefacts:
 
 - `bin/SLSsteam.so` — main hook library
 - `bin/library-inject.so` — small audit helper that redirects libcurl
@@ -28,8 +30,8 @@ slsteam-moon is a 32-bit shared library that hooks into Steam through
 Compiles in place using the host toolchain. Fast, no container needed.
 
 The catch: the binary's glibc requirement matches the system you build
-on. A binary built on Ubuntu 24.04 (glibc 2.39) will not run on Ubuntu
-22.04 (glibc 2.34). Use this for development on whatever distro you're
+on. A binary built on Ubuntu 24.04 (glibc 2.39) will not load on Ubuntu
+22.04 (glibc 2.35). Use this for development on whatever distro you're
 on; use the portable mode for anything you ship.
 
 Dependencies (Ubuntu/Debian):
@@ -50,9 +52,20 @@ The `--host` script sniffs for these and tells you what's missing.
 
 ### Portable build (`scripts/build.sh --portable`)
 
-Builds inside an Ubuntu 22.04 container (Podman or Docker), so the
-resulting binary works on any distro with **glibc ≥ 2.34**: Ubuntu
-22.04+, Debian 12+, Fedora 36+, modern Mint, Pop!_OS, Zorin, etc.
+Builds inside a container, so the binary's floor comes from the build image,
+not your host: i386 in Ubuntu 22.04 (`scripts/Dockerfile`), x86_64
+(`--arch x86_64`) in AlmaLinux 8.10 via `scripts/build-portable-container.sh`.
+
+The newest glibc symbol a binary references is not the oldest system it
+loads on. [`PORTING.md` "Distribution floor"](../PORTING.md#distribution-floor--read-this-before-shipping-a-binary)
+has the measured table and method and is authoritative when they change. As
+measured there: the x86_64 build's symbol floor is `GLIBC_2.17`, but its
+working floor is glibc 2.27 with libstdc++ from gcc 7+, because libstdc++'s
+`CXXABI_1.3.11` is what blocks older systems; the i386 working floor is glibc
+2.35 with libstdc++ from gcc 12+. Those are load measurements (`LD_AUDIT` into a
+trivial process under each image's own loader and libraries), not runs inside a
+Steam client: the x86_64 build has not been verified inside a running Steam
+client.
 
 This is what release builds use. Requires Podman (rootless, preferred)
 or Docker installed; the script picks whichever it finds.
@@ -62,10 +75,11 @@ The container image (`slsteam-moon-builder`) is built from
 
 ### Cross-distro reach
 
-The portable build's glibc minimum is determined by the base image, not
-by anything in our code. If you need to support older distros (e.g.
-glibc 2.31 / Ubuntu 20.04), change the `FROM` line in
-`scripts/Dockerfile` to `ubuntu:20.04` and rebuild. The Makefile flags
+Both floors are set by the build image's glibc and toolchain, not by anything
+in our code. To target older distros, change the image (`FROM` in
+`scripts/Dockerfile` for i386, `--image` on
+`scripts/build-portable-container.sh` for x86_64), then re-measure the working
+floor as `PORTING.md` describes before advertising it. The Makefile flags
 already include `-D_GLIBCXX_USE_CXX11_ABI=0` for C++ ABI compatibility.
 
 ## Releasing
@@ -101,22 +115,25 @@ gh release upload vX.Y dist/slsteam-moon-linux-X.Y.zip --clobber
 scripts/check-compat.sh
 ```
 
-Reports the binary's actual glibc minimum and whether it'll run on your
-current host. Useful before publishing a release.
+Reports the binary's glibc symbol floor (the newest `GLIBC_` version it
+references) and compares it with your host's glibc. That is not the working
+floor: it does not check libstdc++ (`GLIBCXX_`, `CXXABI_`), which is what
+blocks older systems, so a pass does not mean the binary loads.
 
 You can also check by hand:
 
 ```
-objdump -T bin/SLSsteam.so | grep GLIBC | sort -V | tail -5
+objdump -T bin/SLSsteam.so | grep -E 'GLIBC|CXXABI' | sort -V | tail -5
 ldd bin/SLSsteam.so
 ```
 
 ## Troubleshooting
 
-**`wrong ELF class: ELFCLASS32`** — you're trying to inject into a
-64-bit Steam process. The Steam Linux client runs both `steam`
-(launcher, 64-bit) and `ubuntu12_32/steam` (real client, 32-bit).
-slsteam-moon only hooks the 32-bit client; `setup.sh` handles this.
+**`wrong ELF class: ELFCLASS32`** — an i386 build is being loaded into a
+64-bit process. The Steam Linux client runs both `steam` (launcher, 64-bit)
+and `ubuntu12_32/steam` (real client, 32-bit). The i386 build hooks only the
+32-bit client; `setup.sh` handles this. The 64-bit `steamrt64` client needs the
+x86_64 build (`--arch x86_64`, see `PORTING.md`).
 
 **`GLIBC_X.YZ not found` at Steam launch** — the binary was built on a
 newer system than the user's. Rebuild with `scripts/build.sh --portable`,
