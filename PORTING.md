@@ -142,24 +142,115 @@ detour.
 
 ## Distribution floor — read this before shipping a binary
 
-The x86_64 container build ships against its symbol floor. Do not advertise
-anything lower than the measured numbers below.
+There are two floors per arch, and they differ. Advertise the **working** one.
 
-| floor | x86_64 (`scripts/build.sh --portable --arch x86_64`) |
-|---|---|
-| symbol floor (`readelf -V`) | `GLIBC_2.17`, `GLIBCXX_3.4.22`, `CXXABI_1.3.11` |
-| loader gate (`la_version`) | none: an old-glibc loader negotiates interface v1 — see "LD_AUDIT interface version" |
+| floor | x86_64 (`scripts/build.sh --portable --arch x86_64`) | i386 (`scripts/build.sh --portable`) |
+|---|---|---|
+| symbol floor (`readelf -V`) | `GLIBC_2.17`, `GLIBCXX_3.4.22`, `CXXABI_1.3.11` | `GLIBC_2.34`, `GLIBCXX_3.4.30`, `CXXABI_1.3.13` |
+| loader gate (`la_version`) | none: answers the version `ld.so` offers (v1 or v2) | none: answers the version `ld.so` offers (v1 or v2) |
+| **working floor, measured** | **glibc 2.27** (Ubuntu 18.04) with libstdc++ from **gcc 7+** | **glibc 2.35** (Ubuntu 22.04) with libstdc++ from **gcc 12+** |
+| what stops the next-older system | `CXXABI_1.3.11` (libstdc++): `exception_ptr(void*)`, `__cxa_init_primary_exception` | `GLIBCXX_3.4.30` (libstdc++): `condition_variable::wait` |
 
-`la_version` used to keep the effective floor at glibc 2.34: the audit objects
-always asked for interface v2, and loaders that only know v1 abort. They now
-answer with the version the loader offers, so an old-glibc loader negotiates
-instead of aborting, and the AlmaLinux build is no longer loader-gated at 2.34.
+On x86_64, glibc never blocks: the working floor is set by libstdc++, and
+`SLSsteam.so` loads wherever libstdc++ provides `CXXABI_1.3.11` (gcc 7). The
+tested images with glibc 2.17, 2.23 and 2.24 all ship an older libstdc++, so
+2.27 is the lowest glibc on which a load was measured. That is not a claim that
+2.17-2.26 systems fail on glibc. On i386 the working floor is one step above the
+symbol floor's glibc: Fedora 35 (glibc 2.34) ships a gcc 11 libstdc++ without
+`GLIBCXX_3.4.30`.
 
-What remains above the symbol floor is the host's own toolchain, not the
-loader. A host build stays at `GLIBC_2.38`. The i386 container build stays near
-2.34 (see "i386"). The AlmaLinux-built objects have not been re-run through the
-load matrix since the fix, so 2.17 is the measured symbol floor, not a measured
-working floor.
+### Working floor: load matrix
+
+Method, run against `0a02dfb` (the negotiated `la_version`):
+
+- Built by `scripts/build-portable-container.sh` (x86_64 in `almalinux:8.10`,
+  i386 in `ubuntu:22.04`) from a `git archive` snapshot.
+  - x86_64 `SLSsteam.so` sha256: `f4bc31ff…`
+  - i386 `SLSsteam.so` sha256: `e90b1aca…`
+- Each object is loaded with `LD_AUDIT` into a trivial executable under each
+  stock image's own `ld.so`, glibc and `libstdc++` (registry rootfs entered with
+  bubblewrap).
+  - x86_64 executable: the image's `/bin/true`.
+  - i386 executable: a `_start`-only binary that imports nothing newer than
+    `GLIBC_2.0`.
+  - i386 runtime: every image is the amd64 rootfs plus the distro's own i386
+    `libc` and `libstdc++` packages, from its own (or archive) repositories.
+- Accepted means three things:
+  - exit 0;
+  - no `ld.so` message;
+  - `ld.so` looked up `la_objopen` in the module. It does that only after
+    accepting `la_version`. A rejected module prints `...; ignored.` and still
+    exits 0, so the exit code alone proves nothing.
+- Every rejection was cross-checked statically: the object's version needs
+  against the version definitions of that image's libraries. The two agree on
+  every pair, and the static pass lists every missing need, whereas `ld.so`
+  reports only the first.
+- Controls on each image:
+  - a module hard-wired to request interface v2 reproduces the pre-fix
+    failures;
+  - a host build (`GLIBC_2.38`) is rejected everywhere.
+
+Failure modes:
+
+- **(a) la_version rejection:** the loader refuses the requested audit
+  interface version.
+- **(b) symbol-version need:** the image lacks a GLIBC, GLIBCXX or CXXABI
+  version the object was linked against.
+- **(c) missing runtime library:** a library the plugin `dlopen`s later is
+  absent.
+
+x86_64, `SLSsteam.so`:
+
+| image | glibc | max GLIBCXX | result | rc | mode | blocking needs (all of them) |
+|---|---|---|---|---|---|---|
+| `centos:7` | 2.17 | 3.4.19 | **rejected**, process **segfaults** | 139 | (b) | `GLIBCXX_3.4.20`/`.21`/`.22`, `CXXABI_1.3.8`/`.9`/`.11` (libstdc++ only; no GLIBC need missing) |
+| `ubuntu:16.04` | 2.23 | 3.4.21 | **rejected**, process **segfaults** | 139 | (b) | `CXXABI_1.3.11` (`exception_ptr(void*)`, `__cxa_init_primary_exception`), `GLIBCXX_3.4.22` (`std::thread::_M_start_thread`) |
+| `debian:9` | 2.24 | 3.4.22 | **rejected**, process **segfaults** | 139 | (b) | `CXXABI_1.3.11` only |
+| `ubuntu:18.04` | 2.27 | 3.4.25 | loads | 0 | — | — |
+| `debian:10` | 2.28 | 3.4.25 | loads | 0 | — | — |
+| `almalinux:8.10` | 2.28 | 3.4.25 | loads | 0 | — | — |
+| `ubuntu:20.04` | 2.31 | 3.4.28 | loads | 0 | — | — |
+| `debian:11` | 2.31 | 3.4.28 | loads | 0 | — | — |
+| `fedora:33` | 2.32 | 3.4.28 | loads | 0 | — | — |
+| `fedora:34` | 2.33 | 3.4.29 | loads | 0 | — | — |
+| `fedora:35` | 2.34 | 3.4.29 | loads | 0 | — | — |
+| `ubuntu:22.04` | 2.35 | 3.4.30 | loads | 0 | — | — |
+| `debian:12` | 2.36 | 3.4.30 | loads | 0 | — | — |
+
+x86_64 `library-inject.so` loads on every image from `ubuntu:16.04` up. On
+`centos:7` it is rejected on `GLIBCXX_3.4.20` (rc 0, ignored).
+
+Failure mode (a) is gone: no image rejected either object on the audit
+interface. Note that the v2 control aborts or segfaults on `ubuntu:18.04`,
+`debian:10`, `ubuntu:20.04`, `debian:11` (rc 127/139), and is ignored as
+"requires version 2" on `fedora:33`/`34`. Our objects load on all of them.
+
+Failure mode (c) cannot block loading. No object has `libcurl` or `libcrypto`
+in `DT_NEEDED`:
+
+- x86_64 `SLSsteam.so`: `libpthread`, `libdl`, `libstdc++`, `libm`, `libgcc_s`,
+  `libc` and `ld-linux`.
+- i386 `SLSsteam.so`: the same without `libpthread`/`libdl`.
+
+They are `dlopen`ed when a feature runs (see "Runtime dependencies"). Several
+stock container images lack them: `libcurl.so.4` is absent from the `ubuntu`
+and `debian` images, and `libcrypto` from `ubuntu:20.04` and `debian:12`.
+That is a packaging question for minimal systems, not part of the floor.
+
+A rejection on the oldest loaders tested is not benign. On `centos:7` (2.17),
+`ubuntu:16.04` (2.23) and `debian:9` (2.24), `ld.so` printed the version error
+and then the process segfaulted (rc 139). By inference, not measured, a Steam
+client started with `LD_AUDIT` on such a system would crash rather than run
+unpatched.
+
+Not verified:
+
+- None of this ran inside the Steam client. The matrix proves that `ld.so`
+  resolves every version need and accepts the audit module; it does not
+  exercise patching.
+- Whether Steam's runtime puts its own `libstdc++.so.6` in front of the host's
+  for the audited process was not measured. The libstdc++ rows above use the
+  image's copy.
 
 ### Symbol floor by build image
 
@@ -218,18 +309,16 @@ After the fix, measured on real distro loaders (rootfs under bwrap):
 `la_objopen`/`la_objsearch` fire on `fedora:34` (2.33), `ubuntu:20.04` and i386
 `debian:11` (2.31), and `la_symbind` still fires for a `-z now` executable on
 2.31, 2.33 and 2.34, so a BIND_NOW client is still interposed under a v1
-loader. Every hook the objects define exists in interface v1. Those runs used
-`library-inject.so` and a pure-C probe, not the AlmaLinux-built `SLSsteam.so`.
+loader. Every hook the objects define exists in interface v1. The load matrix
+above repeats the acceptance check with the container-built `SLSsteam.so`
+itself.
 
 Negotiation does not lower a host build's floor: its symbol versions
 (`GLIBC_2.38`, `GLIBCXX_3.4.32`) stop `dlmopen` on older glibc before
-`la_version` is called, and `ld.so` then ignores the module (rc 0).
-
-Not verified: none of this was run inside the Steam client. The load test
-proves that the loader resolves every version need and accepts the audit
-module. It does not exercise patching. The host also needs a `libstdc++.so.6`
-of at least `GLIBCXX_3.4.22` (gcc 6). Whether Steam's runtime supplies a newer
-one in front of the host's was not measured.
+`la_version` is called, and `ld.so` then ignores the module (rc 0). In the
+matrix a host build was rejected on all eight original images. The first
+missing need it reported ranged from `GLIBC_2.29` (`almalinux:8.10`) to
+`GLIBC_2.38` (`fedora:35`, `ubuntu:22.04`, `debian:12`).
 
 ### i386
 
@@ -247,8 +336,23 @@ The AlmaLinux treatment is not available for i386 yet:
   (27 times, `nm -u`), a `GLIBC_2.32` symbol, so linking against glibc < 2.32
   fails until it is rebuilt from source.
 
-The pre-fix abort table above is x86_64. On i386 only the post-fix probe on
-`debian:11` (2.31) was measured.
+i386 load matrix (same method, run under the distro's own i386
+`/lib/ld-linux.so.2`):
+
+| image | glibc | max GLIBCXX | `SLSsteam.so` | blocking needs (all of them) | `library-inject.so` |
+|---|---|---|---|---|---|
+| `almalinux:8.10` | 2.28 | 3.4.25 | rejected, rc 0 | `GLIBC_2.29` (`log2`), `2.32`, `2.33`, `2.34`; `GLIBCXX_3.4.26`, `.29`, `.30`; `CXXABI_1.3.13` | rejected (`GLIBCXX_3.4.26`, `.29`) |
+| `ubuntu:20.04` | 2.31 | 3.4.28 | rejected, rc 0 | `GLIBC_2.32` (`__libc_single_threaded`), `2.33` (`stat`/`fstat`/`lstat`), `2.34` (13 `dlopen`/`pthread_*`); `GLIBCXX_3.4.29`, `.30`; `CXXABI_1.3.13` | rejected (`GLIBCXX_3.4.29`) |
+| `debian:11` | 2.31 | 3.4.28 | rejected, rc 0 | same as `ubuntu:20.04` | rejected (`GLIBCXX_3.4.29`) |
+| `fedora:33` | 2.32 | 3.4.28 | rejected, rc 0 | `GLIBC_2.33`, `2.34`; `GLIBCXX_3.4.29`, `.30`; `CXXABI_1.3.13` | rejected (`GLIBCXX_3.4.29`) |
+| `fedora:34` | 2.33 | 3.4.29 | rejected, rc 0 | `GLIBC_2.34`; `GLIBCXX_3.4.30` | loads |
+| `fedora:35` | 2.34 | 3.4.29 | **rejected**, rc 0 | `GLIBCXX_3.4.30` only (`condition_variable::wait`) | loads |
+| `ubuntu:22.04` | 2.35 | 3.4.30 | loads | — | loads |
+| `debian:12` | 2.36 | 3.4.30 | loads | — | loads |
+
+Every i386 rejection is mode (b). None is a `la_version` rejection, and none
+crashed the process. Lowering the i386 floor needs an older build image, which
+the two bullets above currently block. It does not need a loader change.
 
 ### Container build
 
