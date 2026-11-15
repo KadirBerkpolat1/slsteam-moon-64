@@ -940,13 +940,28 @@ namespace Patterns
 		// Linux i386 steamui.so build
 		// 38adc592f0ab97349639b297203739db70b6547f (SHA-256
 		// 833914b45fcb407e50631d1f62558a28c2f74dc7431b0f0aebd6d25e45b4cd72).
-		// Each complete signature below has exactly one .text match.  They are
-		// optional as a group: live visual removal must fail closed without
-		// affecting package refresh when Steam moves any UI implementation.
+		// x86-64 arms: steamrt64/steamui.so build
+		// 57d58821dd9c285beae2688cc85d64f7c2c5f308 (SHA-256
+		// d4376171a7ffe96bab76f6203b4c65a2f6bff277a9212922b3ca106bf79a3b43).
+		// x86-64 has no PIC thunk, so every x86-64 arm anchors on the plain
+		// SysV entry (rdi, esi, edx carry the same arguments as the cdecl
+		// stack slots).  Each complete signature below has exactly one .text
+		// match.  They are optional as a group: live visual removal must fail
+		// closed without affecting package refresh when Steam moves any UI
+		// implementation.
+		//
+		// x86-64: slot 3 of the 7-slot primary CSteamUIAppController vtable
+		// (RTTI 21CSteamUIAppController), the same slot that holds the i386
+		// body; both bodies carry the same CUtlHashMap::RemoveAt / bitstring /
+		// refcount asserts.  Unique from the Plat_FloatTime call + xmm convert.
 		Pattern_t AppControllerRunFrame
 		{
 			"CSteamUIAppController::RunFrame",
+#if defined(__x86_64__)
+			"41 57 41 56 41 55 41 54 55 53 48 83 EC 38 64 48 8B 1C 25 28 00 00 00 48 89 5C 24 28 48 89 FB E8 ? ? ? ? 66 0F EF C9 66 0F EF D2 F2 0F 5A C0 F3 0F 5A D0",
+#else
 			"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 7C E8 ? ? ? ? 8B 84 24 90 00 00 00 D9 5C 24 0C D9 44 24 0C",
+#endif
 			SigFollowMode::None,
 			&g_modSteamUI,
 			"Patterns::SteamUI::AppControllerRunFrame"
@@ -954,37 +969,62 @@ namespace Patterns
 		// Direct cdecl entry: (controller, appid, create).  The opening PIC
 		// thunk is part of the entry and must be repaired in a trampoline only
 		// if this locator is detoured in the future; LibraryRemoval calls it.
+		//
+		// x86-64: two functions reference "CSteamUIAppController::GetAppByID"
+		// and "... - Create" on both arches.  The real entry has 182 caller
+		// functions (i386 0x1974ca0: 181) and spills both esi and edx (appid,
+		// create); the other is a 49-caller FillInAppOverview helper on both.
 		Pattern_t GetAppByID
 		{
 			"CSteamUIAppController::GetAppByID",
+#if defined(__x86_64__)
+			"41 57 41 56 49 89 FE 41 55 41 54 55 53 48 83 EC 38 89 74 24 0C 89 54 24 08 64 48 8B 04 25 28 00 00 00 48 89 44 24 28",
+#else
 			// The trailing `mov eax,[eax+disp32]` reads a controller member near
 			// 0x9E0 that a later client moved (~0xC38); it is location-only for
 			// this locator, so both low displacement bytes are masked while the
 			// high bytes stay 00 00 and the prologue keeps one steamui match.
 			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 4C 8B 5D 10 8B 75 08 89 45 C8 8B 80 ? ? 00 00",
+#endif
 			SigFollowMode::None,
 			&g_modSteamUI,
 			"Patterns::SteamUI::GetAppByID"
 		};
 		// Direct cdecl entry: (source, appid, change_flags).  Hooking this
 		// captures the otherwise private source receiver used by RunFrame.
+		//
+		// x86-64: the only function referencing "CUpdateManager::MarkAppChange";
+		// it also carries "AppChangeNotification" and the utlfixedlinkedlist
+		// assert, the same set as the i386 body.
 		Pattern_t MarkAppChange
 		{
 			"CUpdateManager::MarkAppChange",
+#if defined(__x86_64__)
+			"41 57 41 89 F7 41 56 41 55 41 54 55 48 89 FD 53 48 83 EC 28 48 8B 05 ? ? ? ? 64 48 8B 1C 25 28 00 00 00",
+#else
 			// Same controller member load as GetAppByID (near 0x9E0 -> ~0xC38 on
 			// a later client); location-only, so mask its low displacement bytes
 			// (high bytes stay 00 00) while the distinct frame keeps one match.
 			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 3C 8B 75 0C 8B 5D 10 89 45 D4 8B 80 ? ? 00 00",
+#endif
 			SigFollowMode::None,
 			&g_modSteamUI,
 			"Patterns::SteamUI::MarkAppChange"
 		};
 		// Direct cdecl entry: (controller, change, optional_callback).  The
 		// detour only publishes an atomic reassert request after the original.
+		//
+		// x86-64: the only function referencing all three of
+		// "BuildCompleteAppOverviewChange", "...BuildCompleteAppOverviewChange
+		// - app" and "Constructed empty appoverview message in ...".
 		Pattern_t BuildCompleteAppOverviewChange
 		{
 			"BuildCompleteAppOverviewChange",
+#if defined(__x86_64__)
+			"41 57 41 56 41 55 41 54 55 48 89 FD 53 48 89 F3 48 81 EC D8 00 00 00 48 89 54 24 40",
+#else
 			"55 89 E5 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 81 EC 8C 00 00 00 8B 7D 08 89 5D A4 E8 ? ? ? ? 84 C0",
+#endif
 			SigFollowMode::None,
 			&g_modSteamUI,
 			"Patterns::SteamUI::BuildCompleteAppOverviewChange"
@@ -1007,10 +1047,22 @@ namespace Patterns
 		// Do NOT wildcard the displacement instead.  That also yields exactly
 		// one match on the newer client, but it is the neighbouring field, and
 		// LibraryRemoval would then flip hidden-ownership bits inside it.
+		//
+		// x86-64: `41 8B 56 1C` (mov edx,[r14+0x1c]) loads the field straight
+		// into the emitter's third argument, then `lea rsi,[eAppOwnershipFlags]`
+		// and the call.  0x1c is confirmed by CSteamApp vtable slot 13 (`mov
+		// eax,[rdi+0x1c]; ret`), the slot holding the i386 `[+0x18]` getter.
+		// Pinned 1C has one match; a wildcard displacement has two, the second
+		// being eAppUpdateError at 0x5c.  Only the modrm (base register) and the
+		// frame slot holding the sink are masked.
 		Pattern_t OwnershipFlagsReference
 		{
 			"CSteamApp::OwnershipFlagsReference",
+#if defined(__x86_64__)
+			"41 8B ? 1C 48 8B BD ? ? ? ? 48 8D 35 ? ? ? ? E8 ? ? ? ?",
+#else
 			"8B ? 18 8B 9D ? ? ? ? 83 EC 04 50 8D 83 ? ? ? ? 50 FF B5 ? ? ? ? E8 ? ? ? ?",
+#endif
 			SigFollowMode::None,
 			&g_modSteamUI,
 			"Patterns::SteamUI::OwnershipFlagsReference"

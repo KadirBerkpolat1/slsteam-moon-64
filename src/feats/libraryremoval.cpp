@@ -53,24 +53,19 @@ std::size_t g_ownershipFlagsOffset = 0;
 Detour<MarkAppChangeFn> g_markAppChange;
 Detour<RunFrameFn> g_runFrame;
 
-// The whole module is reverse engineered against the i386 SteamUI client: the
-// ownership-flag offset is recovered from the x86-32 encoding `8B /r` with
-// mod=01, and the SteamUI detours assume that client's protobuf layout.
-// On x86-64 that decoder rejects every instruction, so setup() reports the
-// capability unavailable and no detour is installed -- the feature is off, not
-// wrong.  Keep the assert so a future port cannot land here by accident.
+// The ownership-flag offset is recovered from the instruction FillInAppOverview
+// uses to read it (`8B /r` mod=01 on i386, `[REX] 8B /r` into edx on x86-64),
+// never from a layout constant: CSteamApp widens with the pointer size (0x18 on
+// i386, 0x1c on x86-64).  The detours only touch that one field and call Steam
+// through its own entries, so no Steam protobuf layout is assumed on either.
+//
+// i386 entries open with a get_pc_thunk call that the trampoline must repair;
+// x86-64 code is RIP-relative and has no such thunk, so repair is skipped there
+// (fixPICThunkCall reports "no thunk" as failure).
 #if defined(__x86_64__)
-static_assert(sizeof(void*) == 8);
+constexpr bool kRepairPicThunk = false;
 #else
-static_assert(sizeof(void*) == 4,
-	"SteamUI protobuf layout is defined for the Linux i386 client");
-#endif
-
-#if defined(__x86_64__)
-// The x86-32 instruction decoder below does not apply to the 64-bit client.
-constexpr bool kLibraryRemovalSupported = false;
-#else
-constexpr bool kLibraryRemovalSupported = true;
+constexpr bool kRepairPicThunk = true;
 #endif
 
 template<typename Fn>
@@ -188,7 +183,11 @@ void* SLS_CDECL hkRunFrame(void* controller)
 
 bool deriveOwnershipOffset(std::size_t& offset) noexcept
 {
+#if defined(__x86_64__)
+	std::array<std::uint8_t, 4> instruction{};
+#else
 	std::array<std::uint8_t, 3> instruction{};
+#endif
 	if (LM_ReadMemory(
 		Patterns::SteamUI::OwnershipFlagsReference.address,
 		instruction.data(), instruction.size()) != instruction.size())
@@ -196,11 +195,18 @@ bool deriveOwnershipOffset(std::size_t& offset) noexcept
 		return false;
 	}
 
-	const auto decoded = LibraryRemovalPolicy::deriveOwnershipOffset(
-		std::span<const std::uint8_t>(instruction));
+	const std::span<const std::uint8_t> bytes(instruction);
+#if defined(__x86_64__)
+	const auto decoded = LibraryRemovalPolicy::deriveOwnershipOffset64(bytes);
+	if (!decoded)
+		return false;
+	offset = decoded->offset;
+#else
+	const auto decoded = LibraryRemovalPolicy::deriveOwnershipOffset(bytes);
 	if (!decoded)
 		return false;
 	offset = *decoded;
+#endif
 	return true;
 }
 
@@ -220,19 +226,6 @@ namespace LibraryRemoval
 {
 bool setup() noexcept
 {
-	// The detours below are x86-32 only (see kLibraryRemovalSupported).  Report
-	// unavailable so the hot-reload capability matrix advertises no UI removal
-	// rather than installing a detour against a decoder that cannot read the
-	// instruction stream.
-	if (!kLibraryRemovalSupported)
-	{
-		if (g_pLog != nullptr)
-			g_pLog->info(
-				"LibraryRemoval: unsupported on this client architecture; "
-				"visual removal disabled\n");
-		return false;
-	}
-
 	try
 	{
 		if (g_ready.load(std::memory_order_acquire))
@@ -267,9 +260,9 @@ bool setup() noexcept
 		// RunFrame is installed last, so no queued work can execute until both
 		// support detours have valid original trampolines.
 		if (!install(g_markAppChange, Patterns::SteamUI::MarkAppChange,
-				reinterpret_cast<lm_address_t>(&hkMarkAppChange), true) ||
+				reinterpret_cast<lm_address_t>(&hkMarkAppChange), kRepairPicThunk) ||
 			!install(g_runFrame, Patterns::SteamUI::AppControllerRunFrame,
-				reinterpret_cast<lm_address_t>(&hkRunFrame), true))
+				reinterpret_cast<lm_address_t>(&hkRunFrame), kRepairPicThunk))
 		{
 			rollback();
 			if (g_pLog != nullptr)
