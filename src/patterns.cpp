@@ -1930,7 +1930,20 @@ namespace Patterns
 		Pattern_t BuildDepotDependency
 		{
 			"CDepotDownloadMgr::BuildDepotDependency",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Only function (0x11d6040) carrying "Failed to initialize depot %u,
+			// manifest %llu (%s)", "count >= 0", and "../public/tier1/utlvector.h",
+			// matching i386 0x132bb00. Copies a 0x20-stride DepotEntry CUtlVector ([rdx+0x10]
+			// count, [rdx] base) and marks [rdi+0x1c]=1.
+			// Proof 2: Exact 4 callers x 2 call sites = 8 calls (4 flag=0 via xor esi,esi;
+			// 4 flag=1 via mov esi,1): 0x10ff6a0, 0x1106180, 0x137c6e0, 0x177e6b0,
+			// matching i386 callers 0x1248470, 0x124dab0, 0x14e5d20, 0x194c180.
+			// Masks stack frame size (0x448) and canary spill offset. Unique at 18/51 tokens.
+			"41 57 41 56 41 55 41 54 41 89 F4 55 48 89 FD 53 48 81 EC ? ? 00 00 64 4C 8B 2C 25 28 00 00 00 4C 89 AC 24 ? ? 00 00 49 89 CD C6 47 1C 01 44 8B 72 10",
+#else
 			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 81 EC 3C 04 00 00 8B 5D 08 8B 75 14 89 85 ? ? FF FF 8B 45 0C",
+#endif
 			SigFollowMode::None
 		};
 

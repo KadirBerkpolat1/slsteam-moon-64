@@ -319,10 +319,10 @@ void checkX86_64(
 	expect(false,
 	       "CUser::m_CompatManager: not ported to x86_64 "
 	       "(degrades live compatibility-tool mapping for newly added titles)");
-	expect(false,
-	       "CDepotDownloadMgr::BuildDepotDependency: not ported to x86_64 "
-	       "(degrades install-plan pinning, empty-depot pruning, and "
-	       "event-driven manifest staging)");
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::BuildDepotDependency",
+		"41 57 41 56 41 55 41 54 41 89 F4 55 48 89 FD 53 48 81 EC ? ? 00 00 64 4C 8B 2C 25 28 00 00 00 4C 89 AC 24 ? ? 00 00 49 89 CD C6 47 1C 01 44 8B 72 10",
+		source);
 }
 } // namespace
 
