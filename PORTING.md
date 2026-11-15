@@ -104,51 +104,113 @@ feature is off, not wrong.
 
 ## Distribution floor — read this before shipping a binary
 
-The x86_64 build requires **glibc 2.38** and **GLIBCXX_3.4.32**. Measured, not
-assumed: `readelf -V bin/SLSsteam.so`.
+There are two floors and they differ. Ship against the **effective** one.
 
-| distribution | glibc | runs? |
+| floor | x86_64 (`scripts/build.sh --portable --arch x86_64`) |
+|---|---|
+| symbol floor (`readelf -V`) | `GLIBC_2.17`, `GLIBCXX_3.4.22`, `CXXABI_1.3.11` |
+| **effective floor today** | **glibc 2.34** — see "LD_AUDIT interface version" |
+
+The effective floor is higher because of `la_version`, not because of any
+symbol. A pending `src/` change to `la_version` is expected to bring it down
+toward the symbol floor; until it lands and is re-measured, 2.17 is **not** a
+working floor.
+
+### Symbol floor by build image
+
+Method: build in the image with `scripts/build-portable-container.sh`, then
+`scripts/abi-floor.sh` (the version-needs table from `readelf -V`, with symbols
+attributed from `objdump -T`). Same source, three toolchains:
+
+| built in | GLIBC | GLIBCXX | CXXABI | forced by |
+|---|---|---|---|---|
+| host: gcc 16.2.1, glibc 2.44 (`make ARCH=x86_64`) | 2.38 | 3.4.32 | 1.3.15 | `__isoc23_strto{l,ll,ul,ull}`, `ios_base_library_init`, `__cxa_call_terminate` |
+| `ubuntu:22.04`: gcc 11, glibc 2.35 | 2.34 | 3.4.30 | 1.3.13 | `dlopen`/`pthread_*` (13 symbols), `condition_variable::wait` |
+| `almalinux:8.10`: gcc-toolset-13, glibc 2.28 | **2.17** | **3.4.22** | **1.3.11** | `clock_gettime`, `secure_getenv`; `std::thread::_M_start_thread` |
+| `debian:11`: gcc 10, glibc 2.31 | — | — | — | does not compile: gcc 10's libstdc++ has no `std::hash<std::filesystem::path>` (`src/process.cpp`) |
+
+`library-inject.so` from the AlmaLinux build: `GLIBC_2.17`, `GLIBCXX_3.4.21`,
+`CXXABI_1.3.9`.
+
+The 2.38 host floor is an artefact of the build host, not of the source:
+`__isoc23_strto*` are emitted only when compiling C++20 against glibc >= 2.38
+headers, and `ios_base_library_init` only by gcc 13+ libstdc++.
+`lib/x86_64/libprotobuf-lite.a` also carries those references, but the Makefile
+rebuilds it from the vendored sources on every clean build, so it follows the
+build image too. AlmaLinux 8's gcc-toolset links symbols its stock gcc 8
+`libstdc++.so.6` lacks from `libstdc++_nonshared.a`, which is why GLIBCXX stays
+at 3.4.22.
+
+### LD_AUDIT interface version
+
+`la_version()` (`src/main.cpp`, `tools/library-inject/main.cpp`) returns
+`LAV_CURRENT` regardless of the version `ld.so` offers. The host, `ubuntu:22.04`
+and `almalinux:8.10` headers all define `LAV_CURRENT 2` (AlmaLinux 8's glibc
+2.28 backports interface v2), so every shipped build asks for v2. A loader that
+only knows v1 rejects them, and on the versions below it **aborts the process**
+instead of ignoring the module.
+
+Measured by loading the AlmaLinux-built objects with `LD_AUDIT` into
+`/bin/true` under each stock image's own `ld.so` and `libstdc++`:
+
+| image | glibc | result |
 |---|---|---|
-| Ubuntu 24.04 | 2.39 | yes |
-| Ubuntu 22.04 | 2.35 | **no** |
-| Debian 13 | 2.41 | yes |
-| Debian 12 | 2.36 | **no** |
-| Fedora 39+ | 2.38 | yes |
-| Arch / CachyOS | rolling | yes |
+| `ubuntu:20.04` | 2.31 | ld.so assertion in `_dl_debug_vdprintf`, rc 127 |
+| `debian:11` | 2.31 | ld.so assertion in `_dl_debug_vdprintf`, rc 127 |
+| `fedora:33` | 2.32 | "requires version 2 (maximum supported version 1)", then ld.so assertion in `unload_audit_module`, rc 127 |
+| `fedora:34` | 2.33 | same as fedora:33, rc 127 |
+| `fedora:35` | 2.34 | loads |
+| `ubuntu:22.04` | 2.35 | loads |
+| `debian:12` | 2.36 | loads |
+| `almalinux:8.10` | 2.28 | loads (vendor backport of interface v2) |
 
-### Why the floor is 2.38 and not 2.34
+A trivial audit module compiled in `debian:11` itself loads there, so the abort
+is the version request, not the toolchain. The host build and the
+`ubuntu:22.04` build disassemble to the same `la_version` returning 2. That is
+why the effective floor is 2.34 and not 2.17: on 2.33 and older, Steam started
+with `LD_AUDIT` dies in the loader.
 
-The source is C++20. Under C++20, glibc's own headers redirect
-`strtol`/`strtoul`/`strtoll`/`strtoull` to `__isoc23_strto*`, and those first
-appear in glibc 2.38. Nothing in this fork calls `strtol` — it arrives through
-`<cstdlib>` in ordinary C++ code — so there is no source-level opt-out. The four
-symbols are the whole reason:
+Not verified: none of this was run inside the Steam client. The load test
+proves that the loader resolves every version need and accepts the audit
+module. It does not exercise patching. The host also needs a `libstdc++.so.6`
+of at least `GLIBCXX_3.4.22` (gcc 6). Whether Steam's runtime supplies a newer
+one in front of the host's was not measured.
 
-```
-UND __isoc23_strtoul@GLIBC_2.38
-UND __isoc23_strtoll@GLIBC_2.38
-UND __isoc23_strtol@GLIBC_2.38
-UND __isoc23_strtoull@GLIBC_2.38
-```
+### i386
 
-`GLIBCXX_3.4.32` comes from `std::ios_base::Init` (`ios_base_library_init`), i.e.
-gcc 13+ libstdc++.
+`scripts/build.sh --portable` (Ubuntu 22.04) measures `GLIBC_2.34`,
+`GLIBCXX_3.4.30`, `CXXABI_1.3.13` for `SLSsteam.so` (same forcing symbols as
+x86_64 on 22.04) and `GLIBC_2.4`, `GLIBCXX_3.4.29` for `library-inject.so`.
+Both request audit interface v2 as well. That already equals the effective
+floor, so the AlmaLinux treatment would gain nothing today, and it is not
+available yet anyway:
 
-Building on an older distro does not lower the floor — it just fails to link.
-Building on a newer one raises it. That is why the portable container for this
-arch is Ubuntu 24.04 and the resulting floor is stated above rather than
-pretended away.
+- gcc-toolset-13 on AlmaLinux 8 ships no 32-bit libstdc++ headers
+  (`bits/c++config.h: No such file or directory`, measured);
+- the prebuilt `lib/libyaml-cpp.a` (i386) references `__libc_single_threaded`
+  (27 times, `nm -u`), a `GLIBC_2.32` symbol, so linking against glibc < 2.32
+  fails until it is rebuilt from source.
+
+The i386 loader behaviour on <= 2.33 was not measured separately. It is the
+same `ld.so` code path.
 
 ### Container build
 
 ```sh
-scripts/build.sh --portable --arch x86_64   # builds in Ubuntu 24.04
-scripts/build.sh --portable                  # i386, still Ubuntu 22.04 (2.34 floor)
+scripts/build.sh --portable --arch x86_64   # AlmaLinux 8.10 via build-portable-container.sh
+scripts/build.sh --portable                  # i386, Ubuntu 22.04 (scripts/Dockerfile)
+scripts/build-portable-container.sh --arch x86_64   # artifacts + manifest only, bin/ untouched
 ```
 
-Two images, because the two arches need genuinely different toolchains:
-`scripts/Dockerfile` (22.04, i386 multilib) and `scripts/Dockerfile.x86_64`
-(24.04, no multilib).
+`scripts/build-portable-container.sh` uses podman, docker or bubblewrap, in that
+order, and exits non-zero rather than falling back to a host build. It builds a
+clean snapshot of `HEAD` and refuses when the measured floor exceeds the
+advertised one. Its `manifest.json` records the floors, the audit interface
+version and the image digest. The x86_64 `--portable` path builds
+`bin/pattern-refresh` in a second pass in Ubuntu 22.04, because that helper
+needs libcurl >= 7.66 (`curl_multi_poll`) and OpenSSL 3, which AlmaLinux 8
+lacks. It is still gated by `scripts/check-pattern-refresh-abi.sh`. CI recipe:
+`docs/portable-build.md`.
 
 ## Runtime dependencies
 
