@@ -98,8 +98,13 @@ namespace
 	constexpr size_t kDepotEntrySizeOff = ManagedDepotFilter::kDepotSizeOff;
 	constexpr size_t kDepotEntryDlcAppIdOff = 0x18;
 	constexpr size_t kVecBaseOff = 0x00;
+#if defined(__x86_64__)
+	constexpr size_t kVecCapacityOff = 0x08;
+	constexpr size_t kVecCountOff = 0x10;
+#else
 	constexpr size_t kVecCapacityOff = 0x04;
 	constexpr size_t kVecCountOff = 0x0c;
+#endif
 	// Steam invokes BuildDepotDependency in pairs: flag 0 builds the
 	// acquisition target and flag 1 describes the installed side.
 	constexpr uint32_t kTargetPlanFlag = 0;

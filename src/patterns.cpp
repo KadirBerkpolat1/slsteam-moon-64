@@ -909,7 +909,19 @@ namespace Patterns
 	Pattern_t ParentalSignatureCheck
 	{
 		"ParentalSignatureCheck",
+#if defined(__x86_64__)
+		// Measured against steamrt64/steamclient.so (build a57ea463).
+		// Proof 1: Immediately follows `call 0x24e3ec0` (RSA signature verification,
+		// shared with ParentalSettingsReceived 0x186db40 and matching i386 0x26e4840)
+		// inside 0x186d710 ("Validating parental settings", "ParentalSettings\\Signature").
+		// Proof 2: Exact `84 C0 75 24` (`test al, al; jne +0x24`) guarding the log
+		// "Parental settings signature did not verify for account ID %u" with
+		// [rbx+0x242] (CUser SteamID account ID), matching i386 0x1a3cefc (`84 C0 75 27`).
+		// Unique at 5/35 tokens.
+		"84 C0 75 24 8B 93 ? ? 00 00 48 8D AC 24 ? ? 00 00 31 C0 48 8D 35 ? ? ? ? 48 89 EF E8 ? ? ? ?",
+#else
 		"84 C0 75 27 8B 85 ? ? ? ? 8D 9D ? ? ? ? 83 EC 04 FF B0 ? ? 00 00 8D 86 ? ? ? ? 50 53 E8 ? ? ? ?",
+#endif
 		SigFollowMode::None
 	};
 	Pattern_t ParentalSettingsReceived
@@ -1080,7 +1092,18 @@ namespace Patterns
 		Pattern_t GetPlayerStats
 		{
 			"CAPIJob::GetPlayerStats",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Only function (0x1956510) referencing "Player.GetUserStats#1".
+			// Proof 2: Single external caller (0x1956f00, matching i386 0x1b32c10), which
+			// carries "Bad GameID passed to RequestUserStats()", "17GSStatsReceived_t",
+			// "19UserStatsReceived_t", "UserStatsLock", and "[AppID %u] CAPIJobRequestUserStats
+			// - no connection to Steam", passing `this` directly to the job body.
+			// Masks frame size, canary spill, stack object offsets, calls, and [rbx+0x1a0].
+			"41 57 31 F6 41 56 41 55 41 54 55 53 48 81 EC ? ? 00 00 64 48 8B 1C 25 28 00 00 00 48 89 9C 24 ? ? 00 00 48 89 FB 48 8D 44 24 ? 48 89 C7 48 89 04 24 E8 ? ? ? ? 48 8D 84 24 ? ? 00 00 31 F6 48 89 C7 48 89 44 24 08 E8 ? ? ? ? 48 8B AB ? ? 00 00",
+#else
 			"55 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 53 81 EC ? ? 00 00 8B 75 08 89 B5 ? ? FF FF 89 FB 65 A1 14 00 00 00 89 45 E4 31 C0 8D 85 ? ? FF FF 6A 00 50",
+#endif
 			SigFollowMode::None
 		};
 	}
@@ -1090,6 +1113,18 @@ namespace Patterns
 		Pattern_t RecvPkt
 		{
 			"CCMInterface::RecvPkt",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Only function (0x11a0440) referencing "CCMInterface::RecvPkt",
+			// "../clientdll/cminterface.cpp", and "CCMInterface - received heartbeat
+			// response, connection still good".
+			// Proof 2: Calls CProtoBufMsgBase::InitFromPacket (0x25eba90),
+			// CJobMgr::BRouteMsgToJob (0x2582660), CSteamEngine::PostCallback (0x1071880),
+			// and CNetMsg factory 0x25d67d0 (17 callers, matching i386 0x27e3370's 17).
+			// Masks frame size (0x518), GOT/global RIP-rel disp, and canary spill offset.
+			// Unique at 26/49 tokens.
+			"41 57 41 56 41 55 41 54 49 89 FC 55 53 48 89 F3 48 81 EC ? ? 00 00 48 8B 2D ? ? ? ? 64 48 8B 04 25 28 00 00 00 48 89 84 24 ? ? 00 00 31 C0",
+#else
 			// The stack frame grew on a later beta (sub esp,0x4cc -> larger), so
 			// the frame size and the frame-relative [ebp-disp] spill of the saved
 			// argument both drift together.  Both are local-frame layout, not
@@ -1097,6 +1132,7 @@ namespace Patterns
 			// displacement (their high bytes 00 00 / FF FF are kept); the gs
 			// cookie load and the rest keep exactly one .text match.
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC ? ? 00 00 8B 45 08 8B 7D 0C 89 85 ? ? FF FF 65 A1 14 00 00 00 89 45 E4 31 C0 8B 86",
+#endif
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CCMInterface::RecvPkt"
@@ -1311,7 +1347,19 @@ namespace Patterns
 		Pattern_t Offset_CompatManager
 		{
 			"CUser::m_CompatManager",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Calls 0x11b9a50, whose constructor writes vtable 0x30b22a8
+			// with RTTI type_info 0x30b1dd8 ("14CCompatManager") and whose slots [1]
+			// (0x11c34e0) and [4] (0x11a5ba0) match SpecifyCompatTool / GetCompatToolName.
+			// Proof 2: Inside CUser::CUser (0x1855ff0), 0x1856c2a loads
+			// `lea rax, [rbx + 0x4a58]`, passes rbx (CUser*) in rsi and rax in rdi,
+			// and calls 0x11b9a50. Masks member disp low 2 bytes, stack spill offset,
+			// and call rel32. Unique at 0x1856c2a.
+			"48 8D 83 ? ? 00 00 48 89 DE 48 89 C7 48 89 84 24 ? ? 00 00 E8 ? ? ? ? 66 0F 6F 1D",
+#else
 			"8D 8E ? ? ? ? 58 56 51 89 8D ? ? ? ? E8 ? ? ? ? 58 5A C7 86 ? ? ? ? FF FF FF FF",
+#endif
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CUser::Offset_CompatManager"
@@ -1432,6 +1480,19 @@ namespace Patterns
 		Pattern_t ProcessPendingLicenseUpdates
 		{
 			"CUser::ProcessPendingLicenseUpdates",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Reads CUser::m_vecPendingLicenses (+0x2588, m_Size at +0x2598,
+			// confirmed by "m_vecPendingLicenses" in CUser::ValidateStatics 0x186bdd3),
+			// iterates PendingLicense_t entries skipping -1, and calls 0x102e680
+			// (CAppInfoCache::GetOrAddAppData) checking [rax+0x18] == 3 (i386 0x1a0d7a0).
+			// Proof 2: Single external caller (0x187bca0, matching i386 0x1a1c480) and
+			// calls 0x184a260 ("17LicensesUpdated_t" notifier), 0x102e680, 0x10282e0,
+			// 0x1850700, 0x18478c0.
+			// Masks m_vecPendingLicenses low displacement byte, jle target, and RIP disp32.
+			// Unique at 14/54 tokens.
+			"41 57 48 89 F8 41 56 41 55 41 54 55 53 48 83 EC 28 8B 97 ? 25 00 00 48 89 7C 24 18 85 D2 0F 8E ? ? ? ? 48 05 ? 25 00 00 48 89 44 24 08 4C 8D 25 ? ? ? ?",
+#else
 			// The trailing `lea eax,[ebx+disp32]` reaches a data symbol through
 			// the PIC base, so its displacement tracks the GOT layout and moves
 			// on an unrelated client change (0x3B314 -> 0x3B714 between the
@@ -1445,6 +1506,7 @@ namespace Patterns
 			// 0x1C high byte stays pinned) -- the relaxed form keeps one module
 			// match while self-healing across that layout drift.
 			"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 2C 8B 44 24 40 8B 88 ? 1C 00 00 85 C9 0F 8E ? ? ? ? 05 ? 1C 00 00 89 44 24 18 8D 83 ? ? ? ? 8B 30",
+#endif
 			SigFollowMode::None
 		};
 		// CUser::<broadcast LicensesUpdated_t>(CUser* this)
@@ -1903,7 +1965,20 @@ namespace Patterns
 		Pattern_t BuildDepotDependency
 		{
 			"CDepotDownloadMgr::BuildDepotDependency",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463).
+			// Proof 1: Only function (0x11d6040) carrying "Failed to initialize depot %u,
+			// manifest %llu (%s)", "count >= 0", and "../public/tier1/utlvector.h",
+			// matching i386 0x132bb00. Copies a 0x20-stride DepotEntry CUtlVector ([rdx+0x10]
+			// count, [rdx] base) and marks [rdi+0x1c]=1.
+			// Proof 2: Exact 4 callers x 2 call sites = 8 calls (4 flag=0 via xor esi,esi;
+			// 4 flag=1 via mov esi,1): 0x10ff6a0, 0x1106180, 0x137c6e0, 0x177e6b0,
+			// matching i386 callers 0x1248470, 0x124dab0, 0x14e5d20, 0x194c180.
+			// Masks stack frame size (0x448) and canary spill offset. Unique at 18/51 tokens.
+			"41 57 41 56 41 55 41 54 41 89 F4 55 48 89 FD 53 48 81 EC ? ? 00 00 64 4C 8B 2C 25 28 00 00 00 4C 89 AC 24 ? ? 00 00 49 89 CD C6 47 1C 01 44 8B 72 10",
+#else
 			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 81 EC 3C 04 00 00 8B 5D 08 8B 75 14 89 85 ? ? FF FF 8B 45 0C",
+#endif
 			SigFollowMode::None
 		};
 

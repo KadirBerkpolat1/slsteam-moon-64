@@ -1,6 +1,5 @@
 // Validate the optional runtime-capability locators against the installed
-// 32-bit Steam client.
-//
+// Steam client (i386 or x86_64, selected by the ELF class of argv[1]).
 // These are the compiled locators whose failure silently degrades a
 // feature instead of failing the load, so a signature that stops matching after
 // a client update is easy to miss:
@@ -33,6 +32,7 @@
 
 #include "feats/compatlive.hpp"
 #include "feats/libraryremoval_policy.hpp"
+#include <elf.h>
 
 #include <cstdint>
 #include <cstring>
@@ -121,6 +121,29 @@ std::string readFile(const char* path)
 	return std::string{std::istreambuf_iterator<char>(input),
 	                   std::istreambuf_iterator<char>()};
 }
+enum class ElfArch
+{
+	Invalid,
+	I386,
+	X86_64,
+};
+
+ElfArch detectElfArch(const std::string& image)
+{
+	if (image.size() < EI_NIDENT)
+		return ElfArch::Invalid;
+	const auto* ident = reinterpret_cast<const unsigned char*>(image.data());
+	if (ident[EI_MAG0] != ELFMAG0 || ident[EI_MAG1] != ELFMAG1
+	    || ident[EI_MAG2] != ELFMAG2 || ident[EI_MAG3] != ELFMAG3)
+	{
+		return ElfArch::Invalid;
+	}
+	if (ident[EI_CLASS] == ELFCLASS32)
+		return ElfArch::I386;
+	if (ident[EI_CLASS] == ELFCLASS64)
+		return ElfArch::X86_64;
+	return ElfArch::Invalid;
+}
 
 // Returns the single match offset, or npos after reporting the failure.
 std::size_t resolveUnique(
@@ -140,20 +163,12 @@ std::size_t resolveUnique(
 	++failures;
 	return std::string::npos;
 }
-} // namespace
 
-int main(int argc, char** argv)
+void checkI386(
+	const std::string& client,
+	const std::string& ui,
+	const std::string& source)
 {
-	if (argc < 3 || argc > 4)
-	{
-		std::cerr << "usage: test_optional_locators <steamclient.so> "
-		             "<steamui.so> [src/patterns.cpp]\n";
-		return 2;
-	}
-	const std::string client = readFile(argv[1]);
-	const std::string ui = readFile(argv[2]);
-	const std::string source = readFile(argc == 4 ? argv[3] : "src/patterns.cpp");
-
 	// The trailing `lea eax,[ebx+disp32]` reaches a data symbol through the PIC
 	// base, so its displacement moves whenever the GOT layout shifts. The hook
 	// only calls the resolved entry, so it stays wildcarded. The two CUser
@@ -256,6 +271,105 @@ int main(int argc, char** argv)
 		"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 81 EC 3C 04 00 00 8B 5D 08 "
 		"8B 75 14 89 85 ? ? FF FF 8B 45 0C",
 		source);
+}
+
+void checkX86_64(
+	const std::string& client,
+	const std::string& ui,
+	const std::string& source)
+{
+	(void)resolveUnique(
+		client, "CUser::ProcessPendingLicenseUpdates",
+		"41 57 48 89 F8 41 56 41 55 41 54 55 53 48 83 EC 28 8B 97 ? 25 00 00 48 89 7C 24 18 85 D2 0F 8E ? ? ? ? 48 05 ? 25 00 00 48 89 44 24 08 4C 8D 25 ? ? ? ?",
+		source);
+	(void)resolveUnique(
+		client, "CCMInterface::RecvPkt",
+		"41 57 41 56 41 55 41 54 49 89 FC 55 53 48 89 F3 48 81 EC ? ? 00 00 48 8B 2D ? ? ? ? 64 48 8B 04 25 28 00 00 00 48 89 84 24 ? ? 00 00 31 C0",
+		source);
+	const std::size_t ownership = resolveUnique(
+		ui, "CSteamApp::OwnershipFlagsReference",
+		"41 8B ? 1C 48 8B BD ? ? ? ? 48 8D 35 ? ? ? ? E8 ? ? ? ?",
+		source);
+	if (ownership != std::string::npos)
+	{
+		const auto* bytes =
+			reinterpret_cast<const std::uint8_t*>(ui.data()) + ownership;
+		const auto decoded = LibraryRemovalPolicy::deriveOwnershipOffset64(
+			std::span<const std::uint8_t>(bytes, 4));
+		expect(decoded.has_value(),
+		       "CSteamApp::OwnershipFlagsReference: the matched instruction does "
+		       "not decode to a usable ownership-flags offset");
+		if (decoded)
+		{
+			expect(decoded->offset == 0x1C && decoded->length == 4,
+			       "CSteamApp::OwnershipFlagsReference: expected offset 0x1C, "
+			       "length 4");
+			std::cout << "CSteamApp::OwnershipFlags offset = 0x" << std::hex
+			          << decoded->offset << " (length " << std::dec
+			          << decoded->length << ")\n";
+		}
+	}
+
+	const std::size_t parental = resolveUnique(
+		client, "ParentalSignatureCheck",
+		"84 C0 75 24 8B 93 ? ? 00 00 48 8D AC 24 ? ? 00 00 31 C0 48 8D 35 ? ? ? ? 48 89 EF E8 ? ? ? ?",
+		source);
+	if (parental != std::string::npos)
+	{
+		expect(static_cast<std::uint8_t>(client[parental + 2]) == 0x75,
+		       "ParentalSignatureCheck: the patched byte is not the jne");
+	}
+	(void)resolveUnique(
+		client, "CAPIJob::GetPlayerStats",
+		"41 57 31 F6 41 56 41 55 41 54 55 53 48 81 EC ? ? 00 00 64 48 8B 1C 25 28 00 00 00 48 89 9C 24 ? ? 00 00 48 89 FB 48 8D 44 24 ? 48 89 C7 48 89 04 24 E8 ? ? ? ? 48 8D 84 24 ? ? 00 00 31 F6 48 89 C7 48 89 44 24 08 E8 ? ? ? ? 48 8B AB ? ? 00 00",
+		source);
+	const std::size_t compat = resolveUnique(
+		client, "CUser::m_CompatManager",
+		"48 8D 83 ? ? 00 00 48 89 DE 48 89 C7 48 89 84 24 ? ? 00 00 E8 ? ? ? ? 66 0F 6F 1D",
+		source);
+	if (compat != std::string::npos)
+	{
+		const auto* bytes =
+			reinterpret_cast<const std::uint8_t*>(client.data()) + compat;
+		const auto offset = CompatLive::decodeManagerOffset64(
+			std::span<const std::uint8_t>(bytes, 7));
+		expect(offset.has_value() && *offset == 0x4A58,
+		       "CUser::m_CompatManager: the matched x86_64 LEA does not decode "
+		       "to 0x4A58");
+	}
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::BuildDepotDependency",
+		"41 57 41 56 41 55 41 54 41 89 F4 55 48 89 FD 53 48 81 EC ? ? 00 00 64 4C 8B 2C 25 28 00 00 00 4C 89 AC 24 ? ? 00 00 49 89 CD C6 47 1C 01 44 8B 72 10",
+		source);
+}
+} // namespace
+
+int main(int argc, char** argv)
+{
+	if (argc < 3 || argc > 4)
+	{
+		std::cerr << "usage: test_optional_locators <steamclient.so> "
+		             "<steamui.so> [src/patterns.cpp]\n";
+		return 2;
+	}
+	const std::string client = readFile(argv[1]);
+	const std::string ui = readFile(argv[2]);
+	const std::string source = readFile(argc == 4 ? argv[3] : "src/patterns.cpp");
+
+	const ElfArch clientArch = detectElfArch(client);
+	const ElfArch uiArch = detectElfArch(ui);
+	if (clientArch == ElfArch::Invalid || uiArch == ElfArch::Invalid
+	    || clientArch != uiArch)
+	{
+		std::cerr << "FAIL: invalid or mismatched ELF class between "
+		          << argv[1] << " and " << argv[2] << '\n';
+		return 2;
+	}
+
+	if (clientArch == ElfArch::X86_64)
+		checkX86_64(client, ui, source);
+	else
+		checkI386(client, ui, source);
 
 	if (failures != 0)
 	{

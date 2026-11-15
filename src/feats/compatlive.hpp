@@ -51,6 +51,33 @@ inline std::optional<std::size_t> decodeManagerOffset(
 	return static_cast<std::size_t>(offset);
 }
 
+// Decodes the 7-byte x86-64 `lea r64,[base+disp32]` (REX.W 8D mod=10 rm!=100)
+// that CUser::CUser uses to pass its embedded CCompatManager (e.g.
+// `48 8D 83 58 4A 00 00` = `lea rax,[rbx+0x4a58]`).
+inline std::optional<std::size_t> decodeManagerOffset64(
+	std::span<const std::uint8_t> instruction) noexcept
+{
+	if (instruction.size() < 7)
+		return std::nullopt;
+	const std::uint8_t rex = instruction[0];
+	if ((rex & 0xFA) != 0x48 || instruction[1] != 0x8D)
+		return std::nullopt;
+	const std::uint8_t modrm = instruction[2];
+	const std::uint8_t mod = modrm >> 6;
+	const std::uint8_t rm = modrm & 0x7;
+	if (mod != 0b10 || rm == 0b100)
+		return std::nullopt;
+	const std::uint32_t raw =
+		static_cast<std::uint32_t>(instruction[3]) |
+		(static_cast<std::uint32_t>(instruction[4]) << 8) |
+		(static_cast<std::uint32_t>(instruction[5]) << 16) |
+		(static_cast<std::uint32_t>(instruction[6]) << 24);
+	const auto disp = static_cast<std::int32_t>(raw);
+	if (disp <= 0 || static_cast<std::size_t>(disp) > kMaxManagerOffset)
+		return std::nullopt;
+	return static_cast<std::size_t>(disp);
+}
+
 inline StepResult step(
 	IClientCompat* compat,
 	std::uint32_t appId,

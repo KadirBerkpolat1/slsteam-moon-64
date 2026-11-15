@@ -4,6 +4,8 @@
 #include "libmem/libmem.h"
 #include "log.hpp"
 #include <charconv>
+#include <cstdint>
+#include <cstring>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -99,6 +101,28 @@ namespace MemHlp
 			reinterpret_cast<void*>(returnAddress));
 		return written >= 0
 		    && static_cast<std::size_t>(written) < outputSize;
+	}
+
+	inline lm_address_t resolveRel32Target(lm_address_t nextInstruction,
+	                                       std::int32_t displacement) noexcept
+	{
+		if (nextInstruction == LM_ADDRESS_BAD)
+			return LM_ADDRESS_BAD;
+		if constexpr (sizeof(lm_address_t) > sizeof(std::int32_t))
+		{
+			const std::int64_t delta = static_cast<std::int64_t>(displacement);
+			if (delta < 0 && nextInstruction < static_cast<lm_address_t>(-delta))
+				return LM_ADDRESS_BAD;
+			if (delta > 0
+			    && nextInstruction
+			           > std::numeric_limits<lm_address_t>::max()
+			                 - static_cast<lm_address_t>(delta))
+			{
+				return LM_ADDRESS_BAD;
+			}
+		}
+		return nextInstruction
+			+ static_cast<lm_address_t>(static_cast<std::intptr_t>(displacement));
 	}
 
 	enum class SigFollowMode

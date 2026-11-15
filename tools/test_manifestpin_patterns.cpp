@@ -1,6 +1,6 @@
 // Validate the call-site assumptions used by the manifest-pin hooks against
-// the current 32-bit steamclient image.
-
+// the installed steamclient image (i386 or x86_64, selected by ELF class).
+#include <elf.h>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -71,6 +71,38 @@ static bool hasPushLiteralBefore(const std::string& image, size_t call,
 	return false;
 }
 
+static int lastEsiFlagBefore(const std::string& image, size_t call)
+{
+	const size_t begin = call > 80 ? call - 80 : 0;
+	size_t lastXor = 0;
+	bool foundXor = false;
+	size_t lastMov1 = 0;
+	bool foundMov1 = false;
+	for (size_t i = begin; i + 2 <= call; ++i)
+	{
+		const auto b0 = static_cast<uint8_t>(image[i]);
+		const auto b1 = static_cast<uint8_t>(image[i + 1]);
+		if (b0 == 0x31 && b1 == 0xf6)
+		{
+			lastXor = i;
+			foundXor = true;
+		}
+		if (i + 5 <= call && b0 == 0xbe && b1 == 0x01
+		    && static_cast<uint8_t>(image[i + 2]) == 0x00
+		    && static_cast<uint8_t>(image[i + 3]) == 0x00
+		    && static_cast<uint8_t>(image[i + 4]) == 0x00)
+		{
+			lastMov1 = i;
+			foundMov1 = true;
+		}
+	}
+	if (foundXor && (!foundMov1 || lastXor > lastMov1))
+		return 0;
+	if (foundMov1 && (!foundXor || lastMov1 > lastXor))
+		return 1;
+	return -1;
+}
+
 int main(int argc, char** argv)
 {
 	if (argc != 2)
@@ -87,9 +119,31 @@ int main(int argc, char** argv)
 	const std::string image{std::istreambuf_iterator<char>(input),
 	                        std::istreambuf_iterator<char>()};
 
-	const auto builders = findMatches(image, parse(
-	    "E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 81 EC 3C 04 00 00 "
-	    "8B 5D 08 8B 75 14 89 85 ? ? FF FF 8B 45 0C"));
+	if (image.size() < EI_NIDENT
+	    || static_cast<uint8_t>(image[EI_MAG0]) != ELFMAG0
+	    || static_cast<uint8_t>(image[EI_MAG1]) != ELFMAG1
+	    || static_cast<uint8_t>(image[EI_MAG2]) != ELFMAG2
+	    || static_cast<uint8_t>(image[EI_MAG3]) != ELFMAG3)
+	{
+		std::cerr << "not a valid ELF image: " << argv[1] << '\n';
+		return 2;
+	}
+
+	const auto elfClass = static_cast<uint8_t>(image[EI_CLASS]);
+	if (elfClass != ELFCLASS32 && elfClass != ELFCLASS64)
+	{
+		std::cerr << "unsupported ELF class in " << argv[1] << '\n';
+		return 2;
+	}
+
+	const char* signature = elfClass == ELFCLASS64
+		? "41 57 41 56 41 55 41 54 41 89 F4 55 48 89 FD 53 48 81 EC ? ? 00 00 "
+		  "64 4C 8B 2C 25 28 00 00 00 4C 89 AC 24 ? ? 00 00 49 89 CD C6 47 1C "
+		  "01 44 8B 72 10"
+		: "E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 81 EC 3C 04 00 00 "
+		  "8B 5D 08 8B 75 14 89 85 ? ? FF FF 8B 45 0C";
+
+	const auto builders = findMatches(image, parse(signature));
 	if (builders.size() != 1)
 	{
 		std::cerr << "expected one BuildDepotDependency; found "
@@ -104,8 +158,17 @@ int main(int argc, char** argv)
 		if (static_cast<uint8_t>(image[call]) != 0xe8
 		    || callDestination(image, call) != builders.front())
 			continue;
-		flag0 += hasPushLiteralBefore(image, call, 0);
-		flag1 += hasPushLiteralBefore(image, call, 1);
+		if (elfClass == ELFCLASS64)
+		{
+			const int flag = lastEsiFlagBefore(image, call);
+			flag0 += (flag == 0);
+			flag1 += (flag == 1);
+		}
+		else
+		{
+			flag0 += hasPushLiteralBefore(image, call, 0);
+			flag1 += hasPushLiteralBefore(image, call, 1);
+		}
 	}
 	if (flag0 != 4 || flag1 != 4)
 	{
