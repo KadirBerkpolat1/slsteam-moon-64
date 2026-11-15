@@ -2090,7 +2090,21 @@ namespace Patterns
 		Pattern_t EvaluateConfigChanges
 		{
 			"CDepotDownloadMgr::EvaluateConfigChanges",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x108eb70).
+			// Proof 1: Only function referencing "AppID %u %sconfig changed : added
+			// depots %s", "updated depots %s", and "removed depots %s" (at 0x108f6d5..
+			// 0x108f793), matching i386 0x11c460a.
+			// Proof 2: Exact 8 external callers (0x1049100, 0x104b160, 0x104b880,
+			// 0x108f9f0, 0x108fbf0, 0x1093760, 0x1107860, 0x11c36a0), matching i386's
+			// 8 callers; takes (ctx, mgr, a2) in (rdi, rsi, edx), reads ctx->flags
+			// (+0x08) and ctx->depots (+0xc0, stride 0x20), and calls the 8-arg
+			// target-vector builder 0x1052dc0 at +0x19e.
+			// Unique at 30/67 tokens.
+			"55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC ? ? 00 00 89 95 ? ? FF FF 8B 57 08 48 89 B5 ? ? FF FF 64 48 8B 04 25 28 00 00 00 48 89 45 C8 31 C0 41 89 D4 41 83 E4 01 75 ? 83 BF ? ? 00 00 19",
+#else
 			"55 89 E5 57 56 53 81 EC DC 00 00 00 89 85 50 FF FF FF 8B 45 10 89 85 40 FF FF FF 8B 45 08 8B 40 04",
+#endif
 			SigFollowMode::None
 		};
 	}
