@@ -2107,7 +2107,22 @@ namespace Patterns
 		Pattern_t OnChunkUnpackedStack
 		{
 			"CDepotDownloadMgr::OnChunkUnpacked[cdecl]",
+#if defined(__x86_64__)
+			// Measured against steamrt64/steamclient.so (build a57ea463, entry 0x13b01f0).
+			// On x86_64 SysV there is no cdecl/regparm3 split; this hooks the live
+			// SysV OnChunkUnpacked implementation (the unreferenced sibling 0x13afea0
+			// has 0 callers and 0 relocations).
+			// Proof 1: Carries "OnChunkUnpacked", "unpacking bad chunk \"%s\" (%s)",
+			// and "Failed unpacking chunk \"%s\" from \"%s\" (%s)", reading 20-byte
+			// chunk SHA at [r14+0x10] and chunk index at [r14+0x3c].
+			// Proof 2: Called directly at 0x13b0b32 by 0x13b0af0 (20CWorkItemUnpackChunk
+			// vtable 0x30c8da0 slot 6), matching i386 0x1511cd0 -> 0x1522c00, with
+			// SysV (context, chunk, source, location, detail, unpackResult) args.
+			// Unique at 20/59 tokens.
+			"55 48 89 E5 41 57 41 56 49 89 F6 41 55 49 89 D5 41 54 41 89 CC 53 48 81 EC ? ? 00 00 48 8B 05 ? ? ? ? 48 89 BD ? ? FF FF 4C 89 85 ? ? FF FF 64 4C 8B 3C 25 28 00 00 00",
+#else
 			"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 7C 04 00 00 8B 45 0C 8B 7D 08 89 85 90 FB FF FF 8B 45 10 89 85 8C FB FF FF",
+#endif
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CDepotDownloadMgr::OnChunkUnpackedStack"
@@ -2116,7 +2131,15 @@ namespace Patterns
 		Pattern_t OnChunkUnpackedReg
 		{
 			"CDepotDownloadMgr::OnChunkUnpacked[regparm3]",
+#if defined(__x86_64__)
+			// i386-ABI-only: x86_64 SysV has no regparm(3) calling-convention
+			// variant. The live SysV OnChunkUnpacked (0x13b01f0) is matched by
+			// OnChunkUnpackedStack above; optional = true keeps this permanently
+			// and harmlessly absent on x86_64.
+			"",
+#else
 			"55 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 89 C6 53 81 EC 7C 04 00 00 8B 45 0C 89 95 90 FB FF FF 89 8D 8C FB FF FF 89 85 94 FB FF FF",
+#endif
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CDepotDownloadMgr::OnChunkUnpackedReg"

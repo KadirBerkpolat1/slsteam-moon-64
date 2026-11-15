@@ -322,6 +322,16 @@ void checkI386(
 		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 00 02 00 00 8B 45 08 "
 		"8B 55 1C 8B 7D 0C",
 		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::OnChunkUnpacked[cdecl]",
+		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 7C 04 00 00 8B 45 0C "
+		"8B 7D 08 89 85 90 FB FF FF 8B 45 10 89 85 8C FB FF FF",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::OnChunkUnpacked[regparm3]",
+		"55 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 89 C6 53 81 EC 7C 04 00 00 "
+		"8B 45 0C 89 95 90 FB FF FF 89 8D 8C FB FF FF 89 85 94 FB FF FF",
+		source);
 }
 
 void checkX86_64(
@@ -431,6 +441,10 @@ void checkX86_64(
 	(void)resolveUnique(
 		client, "ParentalSettingsReceived",
 		"41 57 41 56 45 89 C6 41 55 49 89 F5 41 54 41 89 D4 55 48 89 FD 53 48 89 CB 48 81 EC ? ? 00 00 48 8D 15 ? ? ? ? 48 8B 84 24 ? ? 00 00",
+		source);
+	(void)resolveUnique(
+		client, "CDepotDownloadMgr::OnChunkUnpacked[cdecl]",
+		"55 48 89 E5 41 57 41 56 49 89 F6 41 55 49 89 D5 41 54 41 89 CC 53 48 81 EC ? ? 00 00 48 8B 05 ? ? ? ? 48 89 BD ? ? FF FF 4C 89 85 ? ? FF FF 64 4C 8B 3C 25 28 00 00 00",
 		source);
 }
 } // namespace
